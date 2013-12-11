@@ -1,6 +1,6 @@
 from __future__ import division
-#from mmtbx.nm import tools
-from mmtbx_nm_ext import *
+from mmtbx.nm import tools
+#from mmtbx_nm_ext import *
 import mmtbx.f_model
 import mmtbx.model
 from mmtbx import monomer_library
@@ -44,34 +44,38 @@ def run(args):
     atomsxyz = atoms.extract_xyz()
     sites_cart = xray_structure.sites_cart()
     atomic_weights = xray_structure.atomic_weights()
-    t1 = time.time()
-    nm_init_manager = nm_init(filename = "4ki8_evec.dat",
-            n_modes = 50,
-            atoms = atoms,
-            zero_mode_input_flag = False,
-            zero_mode_flag = True)
-    eigenvector = nm_init_manager.return_modes(1)
+#    nm_init_manager = nm_init(filename = "4ki8_evec.dat",
+#            n_modes = 50,
+#            atoms = atoms,
+#            zero_mode_input_flag = False,
+#            zero_mode_flag = True)
+#    eigenvector = nm_init_manager.return_modes(1)
     selections = []
-    selection_strings = ["chain A", "chain B", "chain C"]
+    selection_strings = ["chain A", "chain B", "chain C", "chain D", "chain E", "chain F", "chain G"]
     for string in selection_strings:
         selections.append(processed_pdb_file.all_chain_proxies.selection(
                                                                 string = string))
-#    modes = tools.generate_evec(selections = selections,
-#                                xray_structure = xray_structure,
-#                                pdb_hierarchy = pdb_hierarchy,
-#                                filename = "4ki8_evec.dat",
-#                                n_modes = 50)
-    eigenA = eigenvector.select(selections[0])
+    modes = tools.generate_evec(selections = selections,
+                                xray_structure = xray_structure,
+                                pdb_hierarchy = pdb_hierarchy,
+                                filename = "4ki8_evec.dat",
+                                n_modes = 50)
     for selection in selections:
-        sites_cart_selected = xray_structure.sites_cart().select(selection)
-        atomic_weights_selected = xray_structure.atomic_weights().select(selection)
-        nm_init_manager.gen_zero_modes(sites_cart_selected, atomic_weights_selected)
+        modes1d = tools.selected_modes_to_1D(modes = modes, n_modes = 50, selection = selection)
+        assert len(modes1d) % 50 == 0
+        len_mode = int(len(modes1d)/50)
+        for i in range(50):
+            modes_selected = modes[i].select(selection)
+            for j in range(len_mode):
+                assert modes1d[j+len_mode*i] == modes_selected[j]
+#    eigenA = eigenvector.select(selections[0])
+#    for selection in selections:
+#        sites_cart_selected = xray_structure.sites_cart().select(selection)
+#        atomic_weights_selected = xray_structure.atomic_weights().select(selection)
+#        nm_init_manager.gen_zero_modes(sites_cart_selected, atomic_weights_selected)
 #        zero_mode0 = nm_init_manager.return_zero_modes(0)
-    t2 = time.time()
-#    eigenvector.set_selected(selections[2], zero_mode0)
-    t3 = time.time()
 #    print t2 - t1
-    print t3 - t1
+    tools.show_time()
 
 if (__name__ == "__main__"):
     run(sys.argv[1:])

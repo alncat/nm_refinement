@@ -15,6 +15,18 @@ import mmtbx.utils
 import iotbx
 import os
 
+time_generate_evec = 0.0
+time_convert_modes = 0.0
+
+def show_time(out = None):
+    if(out is None): out = sys.stdout
+    total = time_generate_evec + time_convert_modes
+    if(total > 0.01):
+        print >> out, "NM refinement:"
+        print >> out, " time_generate_evec = %-7.2f"% time_generate_evec
+        print >> out, " time_convert_modes = %-7.2f"% time_convert_modes
+    return total
+
 class nm_refinement(object):
   def __init__(self,
                fmodel,
@@ -106,14 +118,36 @@ def generate_evec(selections,
     for i in range(n_modes):
         modes.append(nm_init_manager.return_modes(i))
     if zero_mode_flag == True and zero_mode_input_flag == False:
+        count = 0
         for selection in selections:
             sites_cart_selected = xray_structure.sites_cart().select(selection)
             atomic_weights_selected = xray_structure.atomic_weights().select(selection)
             nm_init_manager.gen_zero_modes(sites_cart_selected, atomic_weights_selected)        
+            padd = 6*count
             for i in range(6):
-                selected_zero_modes = nm_init_manager.return_zero_modes(i)
+                selected_zero_modes = nm_init_manager.return_zero_modes(i+padd)
                 modes[i].set_selected(selection, selected_zero_modes)
+            count += 1
     t2 = time.time()
     time_generate_evec += (t2 - t1)
     return modes
 
+def selected_modes_to_1D(modes,
+                        n_modes,
+                        selection):
+    global time_convert_modes
+    t1 = time.time()
+    assert len(modes) == n_modes
+    for i in range(n_modes):
+        assert len(modes[i]) == len(modes[0])
+    len_selected_modes = len(modes[0].select(selection))
+#    modes1d = flex.vec3_double(len_selected_modes*n_modes, [0,0,0])
+    modes1d = []
+    for i in range(n_modes):
+        modes_i_selected = modes[i].select(selection)
+        for j in range(len_selected_modes):
+            modes1d.append(modes_i_selected[j])
+    modes1d = flex.vec3_double(modes1d)
+    t2 = time.time()
+    time_convert_modes += (t2 - t1)
+    return modes1d
