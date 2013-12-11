@@ -65,14 +65,17 @@ public:
         std::size_t align_mark = 0;
         if( file.is_open() ){
             for(std::size_t i = 0; i <= atoms.size(); i++){
-                char * serial = new char[8];
+                char serial[9] = "";
                 file.read(serial, 8);
                 file.seekg(5, ios::cur);
-                char * resname = new char[3];
+//                char * resname = new char[8];
+                char resname[4] = "";
                 file.read(resname, 3);
                 file.seekg(4, ios::cur);
-                char * atmname = new char[4];
+                char atmname[5] = "";
+//                char * atmname = new char[8];
                 file.read(atmname, 4);
+//                cout << serial << resname << atmname << endl;
                 for(std::size_t j = align_mark; j < atoms.size(); j++){
                     if( atoms[j].parent()->data->resname == resname and atoms[j].data->name == atmname){
                         nm_index[i] = j;
@@ -83,16 +86,15 @@ public:
                 if(strncmp(serial, "END", 3) == 0){
                     total_evc = i;
                     break;
-                    delete[] resname;
-                    delete[] atmname;
-                    delete[] serial;
                 }
-                delete[] resname;
-                delete[] atmname;
-                delete[] serial;
             }
             for(std::size_t i = 0; i < nmode_start; i++){
                 normal_mode null_mode(atoms.size(), af::init_functor_null<vec3<double> >());
+                for(std::size_t j = 0; j < atoms.size(); j++){
+                    null_mode[j][0] = 0.0;
+                    null_mode[j][1] = 0.0;
+                    null_mode[j][2] = 0.0;
+                }
                 modes.push_back(null_mode);
             }
             for(std::size_t i = nmode_start; i < n_modes; i++){
@@ -250,39 +252,39 @@ public:
     }
 };
 
-//af::versa<af::shared<sym_mat3<double> >, af::c_grid<2> > init_nm_adp(af::shared<normal_mode> const& modes,
-//                                                                    af::shared<double> const& weights,
-//                                                                    std::size_t n_modes,
-//                                                                    bool zero_mode_flag)
-//{
-//    af::versa<af::shared<sym_mat3<double> >, af::c_grid<2> > adp_nma;
-//    adp_nma.resize(af::c_grid<2>(n_modes, n_modes));
-////    af::shared<sym_mat3<double> > adp_nma_i(modes[0].size(), af::init_functor_null<sym_mat3<double> >());
-//    for(std::size_t n = 0; n < n_modes ; n++){
-//        for(std::size_t m = n; m < n_modes ; m++){
-//            MMTBX_ASSERT(modes[n].size() == weights.size());
-//            MMTBX_ASSERT(modes[n].size() == modes[m].size());
-//            af::shared<sym_mat3<double> > adp_nma_i(modes[n].size(), af::init_functor_null<sym_mat3<double> >());
-//            if(zero_mode_flag){
-//                if( n < 6 and m > 7 )
-//                    continue;
-//            }
-//            for( std::size_t i = 0; i < modes[n].size() ; i++){
-//                sym_mat3<double> adp;
-//                adp[0] = modes[n][i][0]*modes[m][i][0];
-//                adp[1] = modes[n][i][1]*modes[m][i][1];
-//                adp[2] = modes[n][i][2]*modes[m][i][2];
-//                adp[3] = (modes[n][i][0]*modes[m][i][1] + modes[n][i][1]*modes[m][i][0])/2.0;
-//                adp[4] = (modes[n][i][0]*modes[m][i][3] + modes[n][i][3]*modes[m][i][0])/2.0;
-//                adp[5] = (modes[n][i][2]*modes[m][i][3] + modes[n][i][3]*modes[m][i][2])/2.0;
-//                adp = adp/weights[i];
-//                adp_nma_i[i] = adp;
-//            }
-//            adp_nma(n, m) = adp_nma_i;
-//        }
-//    }
-//    return adp_nma;
-//}
+af::versa<af::shared<sym_mat3<double> >, af::c_grid<2> > init_nm_adp(af::shared<normal_mode> const& modes,
+                                                                    af::shared<double> const& weights,
+                                                                    std::size_t n_modes,
+                                                                    bool zero_mode_flag)
+{
+    af::versa<af::shared<sym_mat3<double> >, af::c_grid<2> > adp_nma;
+    adp_nma.resize(af::c_grid<2>(n_modes, n_modes));
+//    af::shared<sym_mat3<double> > adp_nma_i(modes[0].size(), af::init_functor_null<sym_mat3<double> >());
+    for(std::size_t n = 0; n < n_modes ; n++){
+        for(std::size_t m = n; m < n_modes ; m++){
+            MMTBX_ASSERT(modes[n].size() == weights.size());
+            MMTBX_ASSERT(modes[n].size() == modes[m].size());
+            af::shared<sym_mat3<double> > adp_nma_i(modes[n].size(), af::init_functor_null<sym_mat3<double> >());
+            if(zero_mode_flag){
+                if( n < 6 and m > 7 )
+                    continue;
+            }
+            for( std::size_t i = 0; i < modes[n].size() ; i++){
+                sym_mat3<double> adp;
+                adp[0] = modes[n][i][0]*modes[m][i][0];
+                adp[1] = modes[n][i][1]*modes[m][i][1];
+                adp[2] = modes[n][i][2]*modes[m][i][2];
+                adp[3] = (modes[n][i][0]*modes[m][i][1] + modes[n][i][1]*modes[m][i][0])/2.0;
+                adp[4] = (modes[n][i][0]*modes[m][i][3] + modes[n][i][3]*modes[m][i][0])/2.0;
+                adp[5] = (modes[n][i][2]*modes[m][i][3] + modes[n][i][3]*modes[m][i][2])/2.0;
+                adp = adp/weights[i];
+                adp_nma_i[i] = adp;
+            }
+            adp_nma(n, m) = adp_nma_i;
+        }
+    }
+    return adp_nma;
+}
 
 //class uaniso_from_s {
 //private:
