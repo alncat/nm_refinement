@@ -1,6 +1,6 @@
 from __future__ import division
 from mmtbx.nm import tools
-#from mmtbx_nm_ext import *
+from mmtbx_nm_ext import *
 import mmtbx.f_model
 import mmtbx.model
 from mmtbx import monomer_library
@@ -60,14 +60,38 @@ def run(args):
                                 pdb_hierarchy = pdb_hierarchy,
                                 filename = "4ki8_evec.dat",
                                 n_modes = 50)
+    time_init_nm_adp = 0.0
+    uanisos = flex.sym_mat3_double(xray_structure.sites_cart().size(), [0,0,0,0,0,0])
     for selection in selections:
         modes1d = tools.selected_modes_to_1D(modes = modes, n_modes = 50, selection = selection)
+        weights_selected = xray_structure.atomic_weights().select(selection)
         assert len(modes1d) % 50 == 0
+        nmval = tools.read_nmval_file(evalin = "4ki8_eval.dat",
+                                      n_modes = 50,
+                                      zero_mode_input_flag = False,
+                                      zero_mode_flag = True)
+        x = tools.init_nm_para(nmval = nmval,
+                         n_modes = 50)
+        t1 = time.time()
+#        adp_nma = init_nm_adp(modes = modes1d,
+#                              weights = weights_selected,
+#                              n_modes = 50,
+#                              zero_mode_flag = True)
+#        print len(adp_nma)
+#        s = unpack_x(x = x, n_modes = 50, zero_mode_flag = True)
+        uaniso_from_s_manager = uaniso_from_s(x = x, modes1d = modes1d, weights = weights_selected,
+                          n_modes = 50,
+                          zero_mode_flag = True)
+        u = uaniso_from_s_manager.u_cart()
+        uanisos.set_selected(selection, u)
         len_mode = int(len(modes1d)/50)
-        for i in range(50):
-            modes_selected = modes[i].select(selection)
-            for j in range(len_mode):
-                assert modes1d[j+len_mode*i] == modes_selected[j]
+        t2 = time.time()
+        time_init_nm_adp += (t2 - t1)
+    print " time_init_nm_adp = %-7.2f"% time_init_nm_adp
+#        for i in range(50):
+#            modes_selected = modes[i].select(selection)
+#            for j in range(len_mode):
+#                assert modes1d[j+len_mode*i] == modes_selected[j]
 #    eigenA = eigenvector.select(selections[0])
 #    for selection in selections:
 #        sites_cart_selected = xray_structure.sites_cart().select(selection)

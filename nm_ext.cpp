@@ -38,6 +38,29 @@ namespace {
         .def("gen_zero_modes", &nm_init::gen_zero_modes)
         .def("return_zero_modes", &nm_init::return_zero_modes)
         ;
+        def("init_nm_adp", (af::shared<sym_mat3<double> >(*)(af::shared<vec3<double> >, 
+                                                            af::shared<double>,
+                                                            std::size_t,
+                                                            bool)) init_nm_adp, 
+                            (arg("modes"), arg("weights"), arg("n_modes"), arg("zero_mode_flag")))
+        ;
+        def("unpack_x", (af::versa<double, af::c_grid<2> >(*)(af::shared<double>, std::size_t, bool))
+                                                                    unpack_x,
+                        (arg("x"), arg("n_modes"), arg("zero_mode_flag")))
+        ;
+        class_<uaniso_from_s>("uaniso_from_s",
+                              init<af::shared<double> const&,
+                              af::shared<vec3<double> > const&,
+                              af::shared<double> const&,
+                              std::size_t,
+                              bool>(
+                                  (arg("x"),
+                                   arg("modes1d"),
+                                   arg("weights"),
+                                   arg("n_modes"),
+                                   arg("zero_mode_flag"))))
+        .def("u_cart", &uaniso_from_s::u_cart)
+        ;
     }
 }
 }}

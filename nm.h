@@ -3,6 +3,7 @@
 
 #include <cctbx/sgtbx/space_group.h>
 #include <scitbx/array_family/versa.h>
+#include <scitbx/array_family/versa_matrix.h>
 #include <vector>
 #include <scitbx/array_family/shared_algebra.h>
 #include <scitbx/array_family/versa_algebra.h>
@@ -140,12 +141,12 @@ public:
     }
     void schmidt(af::shared<normal_mode> & pall)
     {
-        cout << pall.size() << endl;
+//        cout << pall.size() << endl;
         MMTBX_ASSERT(pall.size() == 6*(count_zero_modes+1));
         double anorm = 0.0;
         std::size_t padd = count_zero_modes*6;
-        cout << padd << endl;
-        cout << pall[0+padd].size() << endl;
+//        cout << padd << endl;
+//        cout << pall[0+padd].size() << endl;
         for(std::size_t i = 0; i < pall[0+padd].size() ; i++){
             anorm += pall[padd][i][0]*pall[padd][i][0];
         }
@@ -240,7 +241,7 @@ public:
         }
         schmidt(zero_modes);
         count_zero_modes++;
-        cout << count_zero_modes << endl;
+//        cout << count_zero_modes << endl;
     }
     af::shared<vec3<double> > return_modes( std::size_t i ) { return modes[i]; }    
     af::shared<vec3<double> > return_zero_modes( std::size_t i ) { return zero_modes[i]; }
@@ -252,44 +253,160 @@ public:
     }
 };
 
-af::versa<af::shared<sym_mat3<double> >, af::c_grid<2> > init_nm_adp(af::shared<normal_mode> const& modes,
-                                                                    af::shared<double> const& weights,
-                                                                    std::size_t n_modes,
-                                                                    bool zero_mode_flag)
+af::shared<sym_mat3<double> > init_nm_adp(af::shared<vec3<double> > const& modes,
+                                            af::shared<double> const& weights,
+                                            std::size_t n_modes,
+                                            bool zero_mode_flag)
 {
-    af::versa<af::shared<sym_mat3<double> >, af::c_grid<2> > adp_nma;
-    adp_nma.resize(af::c_grid<2>(n_modes, n_modes));
+//    af::shared<sym_mat3<double> > adp_nma;
+    std::size_t unit_len = weights.size();
+    std::size_t total_len = unit_len*n_modes;
+    cout << unit_len << endl;
+    cout << modes.size() << endl;
+    MMTBX_ASSERT(modes.size() == total_len);
+    af::shared<sym_mat3<double> > adp_nma(n_modes*total_len, af::init_functor_null<sym_mat3<double> >());
+//    cout << "all right" << endl;
 //    af::shared<sym_mat3<double> > adp_nma_i(modes[0].size(), af::init_functor_null<sym_mat3<double> >());
     for(std::size_t n = 0; n < n_modes ; n++){
         for(std::size_t m = n; m < n_modes ; m++){
-            MMTBX_ASSERT(modes[n].size() == weights.size());
-            MMTBX_ASSERT(modes[n].size() == modes[m].size());
-            af::shared<sym_mat3<double> > adp_nma_i(modes[n].size(), af::init_functor_null<sym_mat3<double> >());
+//            af::shared<sym_mat3<double> > adp_nma_i(modes[n].size(), af::init_functor_null<sym_mat3<double> >());
             if(zero_mode_flag){
                 if( n < 6 and m > 7 )
                     continue;
             }
-            for( std::size_t i = 0; i < modes[n].size() ; i++){
+            for( std::size_t i = 0; i < weights.size() ; i++){
                 sym_mat3<double> adp;
-                adp[0] = modes[n][i][0]*modes[m][i][0];
-                adp[1] = modes[n][i][1]*modes[m][i][1];
-                adp[2] = modes[n][i][2]*modes[m][i][2];
-                adp[3] = (modes[n][i][0]*modes[m][i][1] + modes[n][i][1]*modes[m][i][0])/2.0;
-                adp[4] = (modes[n][i][0]*modes[m][i][3] + modes[n][i][3]*modes[m][i][0])/2.0;
-                adp[5] = (modes[n][i][2]*modes[m][i][3] + modes[n][i][3]*modes[m][i][2])/2.0;
+                adp[0] = modes[n*unit_len + i][0]*modes[m*unit_len + i][0];
+                adp[1] = modes[n*unit_len + i][1]*modes[m*unit_len + i][1];
+                adp[2] = modes[n*unit_len + i][2]*modes[m*unit_len + i][2];
+                adp[3] = (modes[n*unit_len + i][0]*modes[m*unit_len + i][1] + modes[n*unit_len + i][1]*modes[m*unit_len + i][0])/2.0;
+                adp[4] = (modes[n*unit_len + i][0]*modes[m*unit_len + i][2] + modes[n*unit_len + i][2]*modes[m*unit_len + i][0])/2.0;
+                adp[5] = (modes[n*unit_len + i][1]*modes[m*unit_len + i][2] + modes[n*unit_len + i][2]*modes[m*unit_len + i][1])/2.0;
                 adp = adp/weights[i];
-                adp_nma_i[i] = adp;
+                adp_nma[i + m*unit_len + n_modes*n*unit_len] = adp;
+//                adp_nma.push_back(adp);
             }
-            adp_nma(n, m) = adp_nma_i;
         }
     }
     return adp_nma;
 }
 
-//class uaniso_from_s {
-//private:
-//    af::versa<double, af::c_grid<2> > s;
-//    af::versa<double, af::c_grid<2> > sigma;
+af::versa<double, af::c_grid<2> > unpack_x(af::shared<double> const& x, std::size_t n_modes, bool zero_mode_flag)
+{
+    MMTBX_ASSERT(x.size() == n_modes*n_modes);
+    af::versa<double, af::c_grid<2> > s(af::c_grid<2>(n_modes, n_modes), 0.0);
+    if(zero_mode_flag){
+        std::size_t nx = 0;
+        for(std::size_t i = 0; i < 6; i++){
+            for(std::size_t j = 0; j <= i; j++){
+                s(i, j) = x[nx];
+                nx++;
+            }
+        }
+        for(std::size_t i = 6; i < n_modes; i++){
+            for(std::size_t j = 6; j <= i; j++){
+                s(i, j) = x[nx];
+                nx++;
+            }
+        }
+    }
+    else{
+        std::size_t nx = 0;
+        for(std::size_t i = 0; i < n_modes; i++){
+            for(std::size_t j = 0; j <= i; j++){
+                nx++;
+                s(i, j) = x[nx];
+            }
+        }
+    }
+
+    return s;
+}
+
+class uaniso_from_s {
+private:
+    af::versa<double, af::c_grid<2> > sigma;
+    af::shared<sym_mat3<double> > adp_all;
+    af::versa<double, af::c_grid<2> > s;
+public:
+    void s2sigma(af::versa<double, af::c_grid<2> > const& s, bool zero_mode_flag)
+    {
+        MMTBX_ASSERT(s.accessor().is_square());
+        std::size_t n_modes = s.accessor()[0];
+        sigma.resize(af::c_grid<2>(n_modes, n_modes), 0.0);
+        if(zero_mode_flag){
+            for( std::size_t i = 0; i < 6; i++ ){
+                for( std::size_t j = 0; j < 6; j++ ){
+                    for( std::size_t k = 0; k <= i; k++ ){
+                        sigma(i, j) = sigma(i, j) + s(i, k)*s(j, k);
+                    }
+                }
+            }
+            for( std::size_t i = 7; i < n_modes ; i++ ){
+                for( std::size_t j = 7; j < n_modes ; j++ ){
+                    for( std::size_t k = 1; k <= i ; k++ ){
+                        sigma(i, j) = sigma(i, j) + s(i, k)*s(j, k);
+                    }
+                }
+            }
+        }
+        else{
+            for( std::size_t i = 0; i < n_modes ; i++ ){
+                for( std::size_t j = 0; j < n_modes ; j++ ){
+                    for( std::size_t k = 0; k <= i ; k++ ){
+                        sigma(i, j) = sigma(i, j) + s(i, k)*s(j, k);
+                    }
+                }
+            }
+        }
+    }
+
+    uaniso_from_s(af::shared<double> const& x,
+                  af::shared<vec3<double> > const& modes1d,
+                  af::shared<double> const& weights,
+                  std::size_t n_modes,
+                  bool zero_mode_flag)
+    {
+        MMTBX_ASSERT(modes1d.size() == n_modes*weights.size());
+        s = unpack_x(x, n_modes, zero_mode_flag);
+//        sigma = af::matrix_multiply(s, s);
+        s2sigma(s, zero_mode_flag);
+        af::shared<sym_mat3<double> > adp_nma;
+        adp_nma = init_nm_adp(modes1d, weights, n_modes, zero_mode_flag);
+        sym_mat3<double> nul_sym_mat3(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        adp_all.resize(weights.size(), nul_sym_mat3);
+        std::size_t total_atoms = weights.size();
+        for(std::size_t n = 0; n < total_atoms ; n++){
+            for(std::size_t i = 0; i < n_modes ; i++){
+                adp_all[n] = 2*sigma(i, i)*adp_nma[n + i*n_modes*total_atoms + i*total_atoms];
+            }
+        }
+        if(zero_mode_flag){
+            for(std::size_t n = 0; n < total_atoms; n++){ 
+                for(std::size_t i = 0; i < 5; i++){
+                    for(std::size_t j = i + 1; j < 6; j++){
+                        adp_all[n] += 2*sigma(i, j)*adp_nma[n + i*n_modes*total_atoms + j*total_atoms];
+                    }
+                }
+                for(std::size_t i = 6; i < n_modes - 1; i++){
+                    for(std::size_t j = i + 1; j < n_modes; j++){
+                        adp_all[n] += 2*sigma(i, j)*adp_nma[n + i*n_modes*total_atoms + j*total_atoms];
+                    }
+                }
+            }
+        }
+        else{
+            for(std::size_t n = 0; n < total_atoms; n++){
+                for(std::size_t i = 0; i < n_modes - 1 ; i++){
+                    for(std::size_t j = i + 1; j < n_modes ; j++){
+                        adp_all[n] += 2*sigma(i, j)*adp_nma[n + i*n_modes*total_atoms + j*total_atoms];
+                    }
+                }
+            }
+        }
+    }
+    af::shared<sym_mat3<double> > u_cart() { return adp_all; }
+};
 
 }}//namespace mmtbx::nm
 #endif //MMTBX_NM_H
