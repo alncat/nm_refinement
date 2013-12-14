@@ -1,6 +1,7 @@
 from __future__ import division
 from iotbx import pdb
 from cctbx.array_family import flex
+import math, random
 import sys, time
 from scitbx import lbfgs
 from mmtbx_nm_ext import *
@@ -25,6 +26,7 @@ def show_time(out = None):
         print >> out, "NM refinement:"
         print >> out, " time_generate_evec = %-7.2f"% time_generate_evec
         print >> out, " time_convert_modes = %-7.2f"% time_convert_modes
+#        print >> out, " time_init_nm_adp   = %-7.2f"% time_init_nm_adp
     return total
 
 class nm_refinement(object):
@@ -110,9 +112,9 @@ def generate_evec(selections,
     t1 = time.time()
     atoms = pdb_hierarchy.atoms()
     nm_init_manager = nm_init(filename = filename,
-                            n_modes = n_modes,
-                            atoms = atoms,
-                            zero_mode_input_flag = zero_mode_input_flag,
+                            n_modes = n_modes, 
+                            atoms = atoms, 
+                            zero_mode_input_flag = zero_mode_input_flag, 
                             zero_mode_flag = zero_mode_flag)
     modes = []
     for i in range(n_modes):
@@ -151,3 +153,59 @@ def selected_modes_to_1D(modes,
     t2 = time.time()
     time_convert_modes += (t2 - t1)
     return modes1d
+
+def init_nm_para(nmval, n_modes, zero_mode_flag = True):
+    freq = []
+    for i in range(n_modes):
+        freq.append(0.0)
+    if zero_mode_flag:
+        nstart = 6
+    else:
+        nstart = 0
+    for i in range(nstart, n_modes):
+        if nmval[i] < 0.0:
+            print "warning: non-positive modes"
+            nmval[i] = abs(nmval[i])
+        freq[i] = max(math.sqrt(nmval[i]), 1.e-2)
+        
+    ave_freq = 0.0
+    for i in range(nstart, n_modes):
+        ave_freq += freq[i]
+    if nstart != n_modes:
+        ave_freq = ave_freq/(n_modes - nstart)
+    x = flex.double(n_modes*n_modes, 0.0)
+    if zero_mode_flag:
+        for i in range(6, n_modes):
+            x[i+i*n_modes] = 1.0/freq[i]
+        if n_modes < 6:
+            mag = 1.0
+        else:
+            mag = .3/ave_freq
+        for i in range(6):
+            for j in range(i+1):
+                x[j+i*n_modes] = mag*random.uniform(-1, 1)
+        for i in range(7, n_modes):
+            for j in range(6, i):
+                x[j+i*n_modes] = mag*random.uniform(-1, 1)
+    else:
+        for i in range(n_modes):
+            x[i+i*n_modes] = 1.0/freq[i]
+        mag = .3/ave_freq
+        for i in range(1, n_modes):
+            for j in range(i):
+                s[j+i*n_modes] = mag*random.uniform(-1, 1)
+    return x
+
+def convert_nm_adp(modes,
+                    n_modes,
+                    weights,
+                    zero_mode_flag = True):
+    global time_init_nm_adp
+    t1 = time.time()
+    adp_nma = init_nm_adp(modes = modes,
+                        weights = weights,
+                        n_mode = n_modes,
+                        zero_mode_flag = zero_mode_flag)
+    t2 = time.time()
+    time_init_nm_adp  += (t2 - t1)
+    return adp_nma
