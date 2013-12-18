@@ -61,6 +61,38 @@ namespace {
                                    arg("zero_mode_flag"))))
         .def("u_cart", &uaniso_from_s::u_cart)
         ;
+        class_<d_target_d_nm>("d_target_d_nm",
+                              init<af::shared<vec3<double> > const&,
+                              af::shared<sym_mat3<double> > const&,
+                              af::shared<double> const&,
+                              af::shared<double> const&,
+                              std::size_t, 
+                              bool>(
+                                  (arg("modes1d"),
+                                   arg("d_target_d_uaniso"),
+                                   arg("weights"),
+                                   arg("x"),
+                                   arg("n_modes"),
+                                   arg("zero_mode_flag"))))
+        .def("grad_nm", &d_target_d_nm::grad_nm)
+        ;
+        class_<nm_from_uaniso_target_and_grads>("nm_from_uaniso_target_and_grads",
+                                                init<af::shared<double> const&,
+                                                af::shared<double> const&,
+                                                af::shared<vec3<double> > const&,
+                                                af::shared<sym_mat3<double> > const&,
+                                                std::size_t,
+                                                bool>(
+                                                    (arg("x"),
+                                                     arg("weights"),
+                                                     arg("modes1d"),
+                                                     arg("uanisos"),
+                                                     arg("n_modes"),
+                                                     arg("zero_mode_flag"))))
+         .def("target", &nm_from_uaniso_target_and_grads::target)
+         .def("grad_nm", &nm_from_uaniso_target_and_grads::grad_nm)
+         ;
+
     }
 }
 }}

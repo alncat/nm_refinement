@@ -378,7 +378,7 @@ public:
         std::size_t total_atoms = weights.size();
         for(std::size_t n = 0; n < total_atoms ; n++){
             for(std::size_t i = 0; i < n_modes ; i++){
-                adp_all[n] = 2*sigma(i, i)*adp_nma[n + i*n_modes*total_atoms + i*total_atoms];
+                adp_all[n] += sigma(i, i)*adp_nma[n + i*n_modes*total_atoms + i*total_atoms];
             }
         }
         if(zero_mode_flag){
@@ -407,6 +407,140 @@ public:
     }
     af::shared<sym_mat3<double> > u_cart() { return adp_all; }
 };
+
+class d_uaniso_d_nm {
+public:
+    d_uaniso_d_nm(af::shared<sym_mat3<double> > const& adp_nma,
+                  af::versa<double, af::c_grid<2> > const& s,
+                  std::size_t atm_num,
+                  std::size_t n_modes,
+                  std::size_t unit_len,
+                  bool zero_mode_flag)
+    {
+        if(zero_mode_flag){
+            for(std::size_t i = 0; i < 6; i++){
+                for(std::size_t j = 0; j <= i; i++){
+                    sym_mat3<double> dpart(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+                    for(std::size_t k = i; k < 6; k++){
+                        dpart += s(k, j)*adp_nma[atm_num + i*n_modes*unit_len + k*unit_len];
+                    }
+                    for(std::size_t k = j; k <= i-1; k++){
+                        dpart += dpart + s(k, j)*adp_nma[atm_num + k*n_modes*unit_len + i*unit_len];
+                    }
+                    dpart *= 2.0;
+                    dudnm_.push_back(dpart);
+                }
+            }
+            for(std::size_t i = 6; i < n_modes; i++){
+                for(std::size_t j = 6; j <= i; j++){
+                    sym_mat3<double> dpart(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+                    for(std::size_t k = i; k < n_modes; k++){
+                        dpart += s(k, j)*adp_nma[atm_num + i*n_modes*unit_len + k*unit_len];
+                    }
+                    for(std::size_t k = j; k <= i - 1; k++){
+                        dpart += s(k, j)*adp_nma[atm_num + k*n_modes*unit_len + i*unit_len];
+                    }
+                    dpart *= 2.0;
+                    dudnm_.push_back(dpart);
+                }
+            }
+            MMTBX_ASSERT(dudnm_.size() == 21 + (n_modes - 5)*(n_modes - 6)/2);
+        }
+        else{
+            for(std::size_t i = 0; i < n_modes; i++){
+                for(std::size_t j = 0; j <= i; j++){
+                    sym_mat3<double> dpart(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+                    for(std::size_t k = i; k < n_modes; k++){
+                        dpart += s(k, j)*adp_nma[atm_num + i*n_modes*unit_len + k*unit_len];
+                    }
+                    for(std::size_t k = j; k <= i - 1; k++){
+                        dpart += s(k, j)*adp_nma[atm_num + k*n_modes*unit_len + i*unit_len];
+                    }
+                    dpart *= 2.0;
+                    dudnm_.push_back(dpart);
+                }
+            }
+            MMTBX_ASSERT(dudnm_.size() == (n_modes + 1)*n_modes/2);
+        }
+    }
+    af::shared<sym_mat3<double> > d_u_d_nm() { return dudnm_; }
+private:
+        af::shared<sym_mat3<double> > dudnm_;
+};
+
+class d_target_d_nm {
+public:
+    d_target_d_nm(af::shared<vec3<double> > const& modes1d,
+                  af::shared<sym_mat3<double> > const& d_target_d_uaniso,
+                  af::shared<double> const& weights,
+                  af::shared<double> const& x,
+                  std::size_t n_modes,
+                  bool zero_mode_flag)
+    {
+        std::size_t unit_len = d_target_d_uaniso.size();
+        MMTBX_ASSERT( modes1d.size() == n_modes*unit_len );
+        MMTBX_ASSERT( weights.size() == unit_len );
+        std::size_t n_nmpars = x.size();
+        if(zero_mode_flag){
+            MMTBX_ASSERT( n_nmpars == 21 + (n_modes - 5)*(n_modes - 6)/2 );
+        }
+        else{
+            MMTBX_ASSERT( n_nmpars = (n_modes + 1)*n_modes/2 );
+        }
+        s = unpack_x(x, n_modes, zero_mode_flag);
+        gNM.resize(n_nmpars, 0.0);
+        nm_adp = init_nm_adp(modes1d, weights, n_modes, zero_mode_flag);
+        for(std::size_t i = 0; i < unit_len; i++){
+            d_uaniso_d_nm d_uaniso_d_nm_manager(nm_adp, s, i, n_modes, unit_len, zero_mode_flag);
+            af::shared<sym_mat3<double> > d_u_d_nm = d_uaniso_d_nm_manager.d_u_d_nm();
+            for(std::size_t k = 0; k < n_nmpars; k++){
+                for(std::size_t m = 0; m < 6; m++){
+                    gNM[k] += d_target_d_uaniso[i][m]*d_u_d_nm[k][m];
+                }
+            }
+        }
+    }
+
+    af::shared<double> grad_nm() { return gNM; }
+private:
+    af::shared<double> gNM;
+    af::versa<double, af::c_grid<2> > s;
+    af::shared<sym_mat3<double> > nm_adp;
+};
+
+class nm_from_uaniso_target_and_grads {
+public:
+    nm_from_uaniso_target_and_grads(
+                                   af::shared<double> const& x,
+                                   af::shared<double> const& weights,
+                                   af::shared<vec3<double> > const& modes1d,
+                                   af::shared<sym_mat3<double> > const& uanisos,
+                                   std::size_t n_modes,
+                                   bool zero_mode_flag)
+    {
+        tg = 0.0;
+        uaniso_from_s uaniso_from_s_manager(x, modes1d, weights, n_modes, zero_mode_flag);
+        unm = uaniso_from_s_manager.u_cart();
+        for(std::size_t i=0; i < weights.size(); i++){
+            sym_mat3<double> diff = unm[i] - uanisos[i];
+            for(std::size_t k=0; k < diff.size(); k++){
+                tg += diff[k]*diff[k];
+            }
+            diffs.push_back(diff*2.);
+        }
+        d_target_d_nm d_target_d_nm_manager(modes1d, diffs, weights, x, n_modes, zero_mode_flag);
+        gNM = d_target_d_nm_manager.grad_nm();
+    }
+    double target() const { return tg; }
+    af::shared<double> grad_nm() { return gNM; }
+private:
+    double tg;
+    af::shared<double> gNM;
+    af::shared<sym_mat3<double> > diffs;
+    af::shared<sym_mat3<double> > unm;
+};
+
+
 
 }}//namespace mmtbx::nm
 #endif //MMTBX_NM_H
