@@ -90,16 +90,13 @@ public:
                 }
             }
             for(std::size_t i = 0; i < nmode_start; i++){
-                normal_mode null_mode(atoms.size(), af::init_functor_null<vec3<double> >());
-                for(std::size_t j = 0; j < atoms.size(); j++){
-                    null_mode[j][0] = 0.0;
-                    null_mode[j][1] = 0.0;
-                    null_mode[j][2] = 0.0;
-                }
+                normal_mode null_mode(atoms.size(), null_mode_i);
                 modes.push_back(null_mode);
             }
             for(std::size_t i = nmode_start; i < n_modes; i++){
-                normal_mode tmp_mode(atoms.size(), af::init_functor_null<vec3<double> >());
+//                normal_mode tmp_mode(atoms.size(), af::init_functor_null<vec3<double> >());
+                normal_mode tmp_mode;
+                tmp_mode.resize(atoms.size(), null_mode_i);
                 for(std::size_t j = 0; j < total_evc; j++){
                     double vx, vy, vz;
                     file.read( (char *) &vx, 8);
@@ -150,15 +147,15 @@ public:
         for(std::size_t i = 0; i < pall[0+padd].size() ; i++){
             anorm += pall[padd][i][0]*pall[padd][i][0];
         }
-        MMTBX_ASSERT(anorm != 0);
-        anorm = 1/sqrt(anorm);
+        MMTBX_ASSERT(anorm != 0.0);
+        anorm = 1./sqrt(anorm);
         
         for(std::size_t i = 0; i < pall[padd].size() ; i++){
             pall[padd][i][0] *= anorm;
         }
         double rec[6][6];
-        for(std::size_t i = 2; i < pall.size()/(count_zero_modes+1) ; i++){
-            for(std::size_t j = 0; j < i-1; j++){
+        for(std::size_t i = 1; i < pall.size()/(count_zero_modes+1) ; i++){
+            for(std::size_t j = 0; j < i; j++){
                 rec[j][i] = 0.0;
                 for(std::size_t k = 0; k < pall[i+padd].size(); k++){
                     rec[j][i] += pall[j+padd][k][0]*pall[i+padd][k][0] + pall[j+padd][k][1]*pall[i+padd][k][1] + pall[j+padd][k][2]*pall[i+padd][k][2];
@@ -166,7 +163,7 @@ public:
             }
             for(std::size_t k = 0; k < pall[i+padd].size(); k++){
                 double aaa = 0.0;
-                for(std::size_t j = 0; j < i - 1; j++){
+                for(std::size_t j = 0; j < i; j++){
                     aaa += (pall[j+padd][k][0] + pall[j+padd][k][1] + pall[j+padd][k][2])*rec[j][i];
                 }
                 pall[i+padd][k][0] -= aaa;
@@ -179,12 +176,10 @@ public:
                 anorm += pall[i+padd][k].length_sq();
             }
             MMTBX_ASSERT(anorm != 0);
-            anorm = 1/sqrt(anorm);
+            anorm = 1./sqrt(anorm);
 
             for(std::size_t k = 0; k < pall[i+padd].size(); k++){
-                pall[i+padd][k][0] /= anorm;
-                pall[i+padd][k][1] /= anorm;
-                pall[i+padd][k][2] /= anorm;
+                pall[i+padd][k] *= anorm;
             }
         }
     }
@@ -261,8 +256,8 @@ af::shared<sym_mat3<double> > init_nm_adp(af::shared<vec3<double> > const& modes
 //    af::shared<sym_mat3<double> > adp_nma;
     std::size_t unit_len = weights.size();
     std::size_t total_len = unit_len*n_modes;
-    cout << unit_len << endl;
-    cout << modes.size() << endl;
+//    cout << unit_len << endl;
+//    cout << modes.size() << endl;
     MMTBX_ASSERT(modes.size() == total_len);
     af::shared<sym_mat3<double> > adp_nma(n_modes*total_len, af::init_functor_null<sym_mat3<double> >());
 //    cout << "all right" << endl;
@@ -293,7 +288,7 @@ af::shared<sym_mat3<double> > init_nm_adp(af::shared<vec3<double> > const& modes
 
 af::versa<double, af::c_grid<2> > unpack_x(af::shared<double> const& x, std::size_t n_modes, bool zero_mode_flag)
 {
-    MMTBX_ASSERT(x.size() == n_modes*n_modes);
+//    MMTBX_ASSERT(x.size() == n_modes*n_modes);
     af::versa<double, af::c_grid<2> > s(af::c_grid<2>(n_modes, n_modes), 0.0);
     if(zero_mode_flag){
         std::size_t nx = 0;
@@ -314,13 +309,49 @@ af::versa<double, af::c_grid<2> > unpack_x(af::shared<double> const& x, std::siz
         std::size_t nx = 0;
         for(std::size_t i = 0; i < n_modes; i++){
             for(std::size_t j = 0; j <= i; j++){
-                nx++;
                 s(i, j) = x[nx];
+                nx++;
             }
         }
     }
 
     return s;
+}
+
+af::shared<double> scale_x(af::shared<double> const& x,
+                           af::shared<sym_mat3<double> > const& uanisos,
+                           af::shared<sym_mat3<double> > const& adp_all,
+                           std::size_t n_modes,
+                           bool zero_mode_flag)
+{
+    MMTBX_ASSERT(uanisos.size() == adp_all.size());
+    double iso_all = 0.0;
+    double aniso_all = 0.0;
+    af::shared<sym_mat3<double> > adp_nma;
+    for(std::size_t i = 0; i < uanisos.size(); i++){
+        if(uanisos[i][2] == 0.0){
+            iso_all += uanisos[i][0]*3.;
+        }
+        else{
+            for(std::size_t j = 0; j < 3; j++){
+                iso_all += uanisos[i][j];
+            }
+        }
+        for(std::size_t j = 0; j < 3; j++){
+            aniso_all += adp_all[i][j];
+        }
+    }
+    aniso_all = aniso_all/3.0/uanisos.size();
+    iso_all = iso_all/3.0/uanisos.size();
+// ios_all is slight incorrect, but it's ok
+    double scaling = sqrt(iso_all/aniso_all);
+    af::shared<double> scaled_x;
+    scaled_x = x*scaling;
+    cout << "x is scaled by " << scaling << endl;
+//    for(std::size_t i = 0; i < x.size(); i++){
+//        scaled_x[i] = x[i]*scaling;
+//    }
+    return scaled_x;
 }
 
 class uaniso_from_s {
@@ -336,25 +367,25 @@ public:
         sigma.resize(af::c_grid<2>(n_modes, n_modes), 0.0);
         if(zero_mode_flag){
             for( std::size_t i = 0; i < 6; i++ ){
-                for( std::size_t j = 0; j < 6; j++ ){
+                for( std::size_t j = i; j < 6; j++ ){
                     for( std::size_t k = 0; k <= i; k++ ){
-                        sigma(i, j) = sigma(i, j) + s(i, k)*s(j, k);
+                        sigma(i, j) += s(i, k)*s(j, k);
                     }
                 }
             }
-            for( std::size_t i = 7; i < n_modes ; i++ ){
-                for( std::size_t j = 7; j < n_modes ; j++ ){
-                    for( std::size_t k = 1; k <= i ; k++ ){
-                        sigma(i, j) = sigma(i, j) + s(i, k)*s(j, k);
+            for( std::size_t i = 6; i < n_modes ; i++ ){
+                for( std::size_t j = i; j < n_modes ; j++ ){
+                    for( std::size_t k = 0; k <= i ; k++ ){
+                        sigma(i, j) += s(i, k)*s(j, k);
                     }
                 }
             }
         }
         else{
             for( std::size_t i = 0; i < n_modes ; i++ ){
-                for( std::size_t j = 0; j < n_modes ; j++ ){
+                for( std::size_t j = i; j < n_modes ; j++ ){
                     for( std::size_t k = 0; k <= i ; k++ ){
-                        sigma(i, j) = sigma(i, j) + s(i, k)*s(j, k);
+                        sigma(i, j) +=  s(i, k)*s(j, k);
                     }
                 }
             }
@@ -362,17 +393,17 @@ public:
     }
 
     uaniso_from_s(af::shared<double> const& x,
-                  af::shared<vec3<double> > const& modes1d,
+                  af::shared<sym_mat3<double> > const& adp_nma,
                   af::shared<double> const& weights,
                   std::size_t n_modes,
                   bool zero_mode_flag)
     {
-        MMTBX_ASSERT(modes1d.size() == n_modes*weights.size());
+        MMTBX_ASSERT(adp_nma.size() == n_modes*n_modes*weights.size());
         s = unpack_x(x, n_modes, zero_mode_flag);
 //        sigma = af::matrix_multiply(s, s);
         s2sigma(s, zero_mode_flag);
-        af::shared<sym_mat3<double> > adp_nma;
-        adp_nma = init_nm_adp(modes1d, weights, n_modes, zero_mode_flag);
+//        af::shared<sym_mat3<double> > adp_nma;
+//        adp_nma = init_nm_adp(modes1d, weights, n_modes, zero_mode_flag);
         sym_mat3<double> nul_sym_mat3(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         adp_all.resize(weights.size(), nul_sym_mat3);
         std::size_t total_atoms = weights.size();
@@ -417,27 +448,31 @@ public:
                   std::size_t unit_len,
                   bool zero_mode_flag)
     {
+        MMTBX_ASSERT(s.accessor().is_square());
+        MMTBX_ASSERT(s.accessor()[0] == n_modes);
+        MMTBX_ASSERT(adp_nma.size() == n_modes*unit_len*n_modes);
         if(zero_mode_flag){
-            for(std::size_t i = 0; i < 6; i++){
-                for(std::size_t j = 0; j <= i; i++){
+            for(int i = 0; i < 6; i++){
+                for(int j = 0; j <= i; j++){
                     sym_mat3<double> dpart(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-                    for(std::size_t k = i; k < 6; k++){
+                    for(int k = i; k < 6; k++){
                         dpart += s(k, j)*adp_nma[atm_num + i*n_modes*unit_len + k*unit_len];
                     }
-                    for(std::size_t k = j; k <= i-1; k++){
-                        dpart += dpart + s(k, j)*adp_nma[atm_num + k*n_modes*unit_len + i*unit_len];
+                    for(int k = j; k < i; k++){
+//                        cout << "all right! k, i, j" << k <<"," << i << "," << j << endl;
+                        dpart += s(k, j)*adp_nma[atm_num + k*n_modes*unit_len + i*unit_len];
                     }
                     dpart *= 2.0;
                     dudnm_.push_back(dpart);
                 }
             }
-            for(std::size_t i = 6; i < n_modes; i++){
-                for(std::size_t j = 6; j <= i; j++){
+            for(int i = 6; i < n_modes; i++){
+                for(int j = 6; j <= i; j++){
                     sym_mat3<double> dpart(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-                    for(std::size_t k = i; k < n_modes; k++){
+                    for(int k = i; k < n_modes; k++){
                         dpart += s(k, j)*adp_nma[atm_num + i*n_modes*unit_len + k*unit_len];
                     }
-                    for(std::size_t k = j; k <= i - 1; k++){
+                    for(int k = j; k < i; k++){
                         dpart += s(k, j)*adp_nma[atm_num + k*n_modes*unit_len + i*unit_len];
                     }
                     dpart *= 2.0;
@@ -447,13 +482,13 @@ public:
             MMTBX_ASSERT(dudnm_.size() == 21 + (n_modes - 5)*(n_modes - 6)/2);
         }
         else{
-            for(std::size_t i = 0; i < n_modes; i++){
-                for(std::size_t j = 0; j <= i; j++){
+            for(int i = 0; i < n_modes; i++){
+                for(int j = 0; j <= i; j++){
                     sym_mat3<double> dpart(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-                    for(std::size_t k = i; k < n_modes; k++){
+                    for(int k = i; k < n_modes; k++){
                         dpart += s(k, j)*adp_nma[atm_num + i*n_modes*unit_len + k*unit_len];
                     }
-                    for(std::size_t k = j; k <= i - 1; k++){
+                    for(int k = j; k < i; k++){
                         dpart += s(k, j)*adp_nma[atm_num + k*n_modes*unit_len + i*unit_len];
                     }
                     dpart *= 2.0;
@@ -470,29 +505,32 @@ private:
 
 class d_target_d_nm {
 public:
-    d_target_d_nm(af::shared<vec3<double> > const& modes1d,
+    d_target_d_nm(af::shared<sym_mat3<double> > const& adp_nma,
                   af::shared<sym_mat3<double> > const& d_target_d_uaniso,
-                  af::shared<double> const& weights,
                   af::shared<double> const& x,
                   std::size_t n_modes,
                   bool zero_mode_flag)
     {
         std::size_t unit_len = d_target_d_uaniso.size();
-        MMTBX_ASSERT( modes1d.size() == n_modes*unit_len );
-        MMTBX_ASSERT( weights.size() == unit_len );
+        MMTBX_ASSERT( adp_nma.size() == n_modes*unit_len*n_modes );
+//        MMTBX_ASSERT( weights.size() == unit_len );
         std::size_t n_nmpars = x.size();
+//        cout << "n_nmpars: " << n_nmpars << endl;
         if(zero_mode_flag){
             MMTBX_ASSERT( n_nmpars == 21 + (n_modes - 5)*(n_modes - 6)/2 );
         }
         else{
-            MMTBX_ASSERT( n_nmpars = (n_modes + 1)*n_modes/2 );
+            MMTBX_ASSERT( n_nmpars == (n_modes + 1)*n_modes/2 );
         }
         s = unpack_x(x, n_modes, zero_mode_flag);
         gNM.resize(n_nmpars, 0.0);
-        nm_adp = init_nm_adp(modes1d, weights, n_modes, zero_mode_flag);
+//        nm_adp = init_nm_adp(modes1d, weights, n_modes, zero_mode_flag);
+//        cout << "init nm adp successfully!" << endl;
         for(std::size_t i = 0; i < unit_len; i++){
-            d_uaniso_d_nm d_uaniso_d_nm_manager(nm_adp, s, i, n_modes, unit_len, zero_mode_flag);
+            d_uaniso_d_nm d_uaniso_d_nm_manager(adp_nma, s, i, n_modes, unit_len, zero_mode_flag);
             af::shared<sym_mat3<double> > d_u_d_nm = d_uaniso_d_nm_manager.d_u_d_nm();
+            MMTBX_ASSERT(d_u_d_nm.size() == n_nmpars);
+//            cout << "generate derivates successfully!" << endl;
             for(std::size_t k = 0; k < n_nmpars; k++){
                 for(std::size_t m = 0; m < 6; m++){
                     gNM[k] += d_target_d_uaniso[i][m]*d_u_d_nm[k][m];
@@ -505,7 +543,7 @@ public:
 private:
     af::shared<double> gNM;
     af::versa<double, af::c_grid<2> > s;
-    af::shared<sym_mat3<double> > nm_adp;
+//    af::shared<sym_mat3<double> > nm_adp;
 };
 
 class nm_from_uaniso_target_and_grads {
@@ -513,13 +551,13 @@ public:
     nm_from_uaniso_target_and_grads(
                                    af::shared<double> const& x,
                                    af::shared<double> const& weights,
-                                   af::shared<vec3<double> > const& modes1d,
+                                   af::shared<sym_mat3<double> > const& adp_nma,
                                    af::shared<sym_mat3<double> > const& uanisos,
                                    std::size_t n_modes,
                                    bool zero_mode_flag)
     {
         tg = 0.0;
-        uaniso_from_s uaniso_from_s_manager(x, modes1d, weights, n_modes, zero_mode_flag);
+        uaniso_from_s uaniso_from_s_manager(x, adp_nma, weights, n_modes, zero_mode_flag);
         unm = uaniso_from_s_manager.u_cart();
         for(std::size_t i=0; i < weights.size(); i++){
             sym_mat3<double> diff = unm[i] - uanisos[i];
@@ -528,7 +566,7 @@ public:
             }
             diffs.push_back(diff*2.);
         }
-        d_target_d_nm d_target_d_nm_manager(modes1d, diffs, weights, x, n_modes, zero_mode_flag);
+        d_target_d_nm d_target_d_nm_manager(adp_nma, diffs, weights, x, n_modes, zero_mode_flag);
         gNM = d_target_d_nm_manager.grad_nm();
     }
     double target() const { return tg; }
@@ -539,8 +577,6 @@ private:
     af::shared<sym_mat3<double> > diffs;
     af::shared<sym_mat3<double> > unm;
 };
-
-
 
 }}//namespace mmtbx::nm
 #endif //MMTBX_NM_H
