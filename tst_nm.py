@@ -26,7 +26,7 @@ def run(args):
 #   pdb_file = libtbx.env.find_in_repositories(
 #          relative_path="phenix_regression/pdb/1A32.pdb",
 #          test=os.path.isfile)
-    pdb_file = "./4KI8.pdb"
+    pdb_file = "./4KSC.pdb"
 #   print pdb_file
     processed_pdb_file = monomer_library.pdb_interpretation.process(
            mon_lib_srv               = mon_lib_srv,
@@ -53,53 +53,63 @@ def run(args):
 #            zero_mode_flag = True)
 #    eigenvector = nm_init_manager.return_modes(1)
     selections = []
-    selection_strings = ["chain A", "chain B", "chain C", "chain D", "chain E", "chain F", "chain G"]
+#    selection_strings = ["chain A", "chain B", "chain C", "chain D", "chain E", "chain F", "chain G"]
+    selection_strings = ["chain A"]
     for string in selection_strings:
         selections.append(processed_pdb_file.all_chain_proxies.selection(
                                                                 string = string))
     modes = tools.generate_evec(selections = selections,
                                 xray_structure = xray_structure,
                                 pdb_hierarchy = pdb_hierarchy,
-                                filename = "4ki8_evec.dat",
-                                n_modes = 20)
+                                filename = "eigenvectors.dat",
+                                n_modes = 40)
     time_nm_from_uaniso = 0.0
     uanisos = flex.sym_mat3_double(xray_structure.sites_cart().size(), [0,0,0,0,0,0])
-    nmval = tools.read_nmval_file(evalin = "4ki8_eval.dat",
-                                  n_modes = 20,
+    nmval = tools.read_nmval_file(evalin = "eigenvalues.dat",
+                                  n_modes = 40,
                                   zero_mode_input_flag = False,
                                   zero_mode_flag = True)
     xs_initial = []
+    adp_nmas = []
     for selection in selections:
         x = tools.init_nm_para(nmval = nmval,
-                               n_modes = 20)
-        modes1d = tools.selected_modes_to_1D(modes = modes, n_modes = 20, selection = selection)
+                               n_modes = 40)
+        modes1d = tools.selected_modes_to_1D(modes = modes, n_modes = 40, selection = selection)
         weights_selected = xray_structure.atomic_weights().select(selection)
+        print "the number of selected atoms is %d." % len(weights_selected)
         u_cart_selected = u_cart.select(selection)
         adp_nma = init_nm_adp(modes = modes1d,
                               weights = weights_selected,
-                              n_modes = 20,
+                              n_modes = 40,
                               zero_mode_flag = True)
+        adp_nmas.append(adp_nma)
         uaniso_from_s_manager = uaniso_from_s(x = x,                            
                                               adp_nma = adp_nma, 
-                                              weights = weights_selected,
-                                              n_modes = 20,
+#                                              weights = weights_selected,
+                                              n_modes = 40,
                                               zero_mode_flag = True)
         u = uaniso_from_s_manager.u_cart()
         x_scaled = scale_x(x = x,
                            uanisos = u_cart_selected,
                            adp_all = u,
-                           n_modes = 20,
+                           n_modes = 40,
                            zero_mode_flag = True)
         xs_initial.append(x_scaled)
-        del adp_nma
     t1 = time.time()
     nm_from_uanisos = tools.nm_from_uanisos(xray_structure = xray_structure,
                                             selections = selections,
                                             modes      = modes,
                                             xs_initial = xs_initial,
-                                            n_modes    = 20,
-                                            number_of_macro_cycles = 5,
+                                            n_modes    = 40,
+                                            number_of_macro_cycles = 1,
                                             verbose    = 1)
+    tools.update_xray_structure_with_nm(xray_structure = xray_structure,
+                                        adp_nmas = adp_nmas,
+                                        selections = selections,
+                                        xs = nm_from_uanisos,
+                                        n_modes = 20,
+                                        zero_mode_flag = True)
+                                        
     t2 = time.time()
     print t2 - t1
     tools.show_time()

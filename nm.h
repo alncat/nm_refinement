@@ -394,19 +394,18 @@ public:
 
     uaniso_from_s(af::shared<double> const& x,
                   af::shared<sym_mat3<double> > const& adp_nma,
-                  af::shared<double> const& weights,
                   std::size_t n_modes,
                   bool zero_mode_flag)
     {
-        MMTBX_ASSERT(adp_nma.size() == n_modes*n_modes*weights.size());
+//        MMTBX_ASSERT(adp_nma.size() == n_modes*n_modes*weights.size());
         s = unpack_x(x, n_modes, zero_mode_flag);
 //        sigma = af::matrix_multiply(s, s);
         s2sigma(s, zero_mode_flag);
 //        af::shared<sym_mat3<double> > adp_nma;
 //        adp_nma = init_nm_adp(modes1d, weights, n_modes, zero_mode_flag);
         sym_mat3<double> nul_sym_mat3(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-        adp_all.resize(weights.size(), nul_sym_mat3);
-        std::size_t total_atoms = weights.size();
+        std::size_t total_atoms = adp_nma.size()/(n_modes*n_modes);
+        adp_all.resize(total_atoms, nul_sym_mat3);
         for(std::size_t n = 0; n < total_atoms ; n++){
             for(std::size_t i = 0; i < n_modes ; i++){
                 adp_all[n] += sigma(i, i)*adp_nma[n + i*n_modes*total_atoms + i*total_atoms];
@@ -550,23 +549,22 @@ class nm_from_uaniso_target_and_grads {
 public:
     nm_from_uaniso_target_and_grads(
                                    af::shared<double> const& x,
-                                   af::shared<double> const& weights,
                                    af::shared<sym_mat3<double> > const& adp_nma,
                                    af::shared<sym_mat3<double> > const& uanisos,
                                    std::size_t n_modes,
                                    bool zero_mode_flag)
     {
         tg = 0.0;
-        uaniso_from_s uaniso_from_s_manager(x, adp_nma, weights, n_modes, zero_mode_flag);
+        uaniso_from_s uaniso_from_s_manager(x, adp_nma, n_modes, zero_mode_flag);
         unm = uaniso_from_s_manager.u_cart();
-        for(std::size_t i=0; i < weights.size(); i++){
+        for(std::size_t i=0; i < uanisos.size(); i++){
             sym_mat3<double> diff = unm[i] - uanisos[i];
             for(std::size_t k=0; k < diff.size(); k++){
                 tg += diff[k]*diff[k];
             }
             diffs.push_back(diff*2.);
         }
-        d_target_d_nm d_target_d_nm_manager(adp_nma, diffs, weights, x, n_modes, zero_mode_flag);
+        d_target_d_nm d_target_d_nm_manager(adp_nma, diffs, x, n_modes, zero_mode_flag);
         gNM = d_target_d_nm_manager.grad_nm();
     }
     double target() const { return tg; }

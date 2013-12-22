@@ -57,12 +57,10 @@ namespace {
         class_<uaniso_from_s>("uaniso_from_s",
                               init<af::shared<double> const&,
                               af::shared<sym_mat3<double> > const&,
-                              af::shared<double> const&,
                               std::size_t,
                               bool>(
                                   (arg("x"),
                                    arg("adp_nma"),
-                                   arg("weights"),
                                    arg("n_modes"),
                                    arg("zero_mode_flag"))))
         .def("u_cart", &uaniso_from_s::u_cart)
@@ -82,13 +80,11 @@ namespace {
         ;
         class_<nm_from_uaniso_target_and_grads>("nm_from_uaniso_target_and_grads",
                                                 init<af::shared<double> const&,
-                                                af::shared<double> const&,
                                                 af::shared<sym_mat3<double> > const&,
                                                 af::shared<sym_mat3<double> > const&,
                                                 std::size_t,
                                                 bool>(
                                                     (arg("x"),
-                                                     arg("weights"),
                                                      arg("adp_nma"),
                                                      arg("uanisos"),
                                                      arg("n_modes"),
