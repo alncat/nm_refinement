@@ -32,8 +32,9 @@ class nm_init {
 private:
     af::shared<normal_mode> modes;
     af::shared<normal_mode> zero_modes;
-    af::shared< std::size_t > nm_index;
+    af::shared<int> nm_index;
     std::size_t count_zero_modes = 0;
+    af::shared<af::shared<bool> > selections;
 
 public:
     nm_init(   
@@ -46,7 +47,7 @@ public:
 //      modes(atoms.size(), af::init_functor_null<vec3<normal_modes> >());
         vec3<double> null_mode_i(0.0, 0.0, 0.0);
         normal_mode null_mode;
-        nm_index.resize(atoms.size(), 0);
+        nm_index.resize(atoms.size(), -1);
 //        for(std::size_t i = 0; i < atoms.size(); i++){
 //            null_mode.push_back(null_mode_i);
 //        }
@@ -64,6 +65,7 @@ public:
         ifstream file(filename, ios::in | ios::binary);
         std::size_t total_evc;
         std::size_t align_mark = 0;
+        std::size_t resi_count = 0;
         if( file.is_open() ){
             for(std::size_t i = 0; i <= atoms.size(); i++){
                 char serial[9] = "";
@@ -78,10 +80,40 @@ public:
                 file.read(atmname, 4);
 //                cout << serial << resname << atmname << endl;
                 for(std::size_t j = align_mark; j < atoms.size(); j++){
-                    if( atoms[j].parent()->data->resname == resname and atoms[j].data->name == atmname){
-                        nm_index[i] = j;
-                        align_mark = j+1;
+//                    cout << atoms[j].data->name.elems << "," << atmname << endl;
+//                    cout << atoms[j].parent()->data->resname.elems << "," << resname << endl;
+                    if( atoms[j].parent()->data->altloc != "" and atoms[j].parent()->data->altloc != "A" ){
+                        std::size_t n_atoms = atoms[j].parent()->atoms_size();
+                        align_mark += n_atoms;
+                        j += n_atoms - 1;
+                    }
+                    else if( atoms[j].parent()->data->resname == resname ){
+                        std::size_t n_atoms = atoms[j].parent()->atoms_size();
+                        if(n_atoms == 3){
+                            n_atoms += atoms[j+3].parent()->atoms_size();
+                        }
+                        else if(atoms[j].parent()->data->altloc == "A"){
+                            n_atoms += 3;
+                        }
+                        for(std::size_t k = 0; k < n_atoms; k++){
+                            if( atoms[k+align_mark].data->name == atmname ){
+//                                cout << atoms[k+align_mark].data->name.elems << "," << atmname << endl;
+//                                cout << atoms[k+align_mark].parent()->data->resname.elems << "," << resname << endl;
+                                nm_index[k+align_mark] = i;
+                                resi_count++;
+                                if(resi_count == n_atoms){
+                                    align_mark += n_atoms;
+                                    resi_count = 0;
+                                }
+                                break;
+                            }
+                        }
                         break;
+                    }
+                    else{
+                        std::size_t n_atoms = atoms[j].parent()->atoms_size();
+                        j += n_atoms - 1;
+                        align_mark += n_atoms;
                     }
                 }
                 if(strncmp(serial, "END", 3) == 0){
@@ -89,6 +121,24 @@ public:
                     break;
                 }
             }
+//            for(std::size_t i = 0; i < nm_index.size(); i++){
+//                if(nm_index[i] == -1){
+//                    cout << i << "," << nm_index[i] << endl;
+//                }
+//            }
+//            for(std::size_t i = 0; i < atoms.size(); i++){
+//                if(atoms[i].parent()->atoms_size() == 3 ){
+//                    cout << atoms[i].data->name.elems << atoms[i].parent()->data->resname.elems << nm_index[i] << endl;
+//                }
+//                else if(atoms[i].parent()->data->altloc == "A"){
+//                    cout << atoms[i].data->name.elems << atoms[i].parent()->data->altloc.elems << atoms[i].parent()->atoms_size() << nm_index[i] << endl;
+//                }
+//                else if(atoms[i].parent()->data->altloc == "B"){
+//                    cout << atoms[i].data->name.elems << atoms[i].parent()->data->altloc.elems << atoms[i].parent()->atoms_size() << nm_index[i] << endl;
+//                }
+//            }
+
+            cout << total_evc << "," << atoms.size() << endl;
             for(std::size_t i = 0; i < nmode_start; i++){
                 normal_mode null_mode(atoms.size(), null_mode_i);
                 modes.push_back(null_mode);
@@ -102,10 +152,14 @@ public:
                     file.read( (char *) &vx, 8);
                     file.read( (char *) &vy, 8);
                     file.read( (char *) &vz, 8);
-                    std::size_t k = nm_index[j];
-                    tmp_mode[k][0] = vx;
-                    tmp_mode[k][1] = vy;
-                    tmp_mode[k][2] = vz;
+                    for(std::size_t k = 0; k < atoms.size() ; k++){
+                        if( nm_index[k] == j ){
+                            tmp_mode[k][0] = vx;
+                            tmp_mode[k][1] = vy;
+                            tmp_mode[k][2] = vz;
+                            break;
+                        }
+                    }
                 }
 //                cout << modes[i-1][0][0] << modes[i-1][0][1] << modes[i-1][0][2] <<endl;
                 double vx, vy, vz;
@@ -126,7 +180,7 @@ public:
 //                for( std::size_t w = 0; w <= i; w++ ){
 //                    cout<< modes[w][0][0] << modes[w][0][1] << modes[w][0][2] << endl;
 //                }
-            }//generate non-zero mode
+            }//read non-zero mode
 //            if( nmode_start != 0){
 //                gen_zero_modes(modes);
 //            } move to python
@@ -184,14 +238,17 @@ public:
         }
     }
     void gen_zero_modes(af::shared<vec3<double> > const& sites_cart,
-                        af::shared<double> const& weights)
+                        af::shared<double> const& weights,
+                        af::shared<bool> const& selection)
     {
         MMTBX_ASSERT(sites_cart.size() == weights.size() );
+        MMTBX_ASSERT(selection.size() == nm_index.size() );
         double xcm = 0.0;
         double ycm = 0.0;
         double zcm = 0.0;
         double tmass = 0.0;
         af::shared<vec3<double> > sites_cart_new(sites_cart.size(), af::init_functor_null<vec3<double> >());
+        af::shared<bool> selection_new(nm_index.size(), true);
         for( std::size_t i = 0; i < sites_cart.size() ; i++ ){
             double weight = weights[i];
             vec3<double> site = sites_cart[i];
@@ -222,24 +279,39 @@ public:
                 zero_modes[i+padd][j][2] = 0.0;
             }
         }
-        for( std::size_t i = 0; i < sites_cart.size() ; i++ ){
-            double sqrt_weight = sqrt(weights[i]);
-            zero_modes[0+padd][i][0] = sqrt_weight;
-            zero_modes[1+padd][i][1] = sqrt_weight;
-            zero_modes[2+padd][i][2] = sqrt_weight;
-            zero_modes[3+padd][i][1] = sqrt_weight*sites_cart_new[i][2];
-            zero_modes[3+padd][i][2] = -sqrt_weight*sites_cart_new[i][1];
-            zero_modes[4+padd][i][0] = -sqrt_weight*sites_cart_new[i][2];
-            zero_modes[4+padd][i][2] = sqrt_weight*sites_cart_new[i][0];
-            zero_modes[5+padd][i][0] = sqrt_weight*sites_cart_new[i][1];
-            zero_modes[5+padd][i][1] = -sqrt_weight*sites_cart_new[i][0];
+        std::size_t i = 0;
+        for( std::size_t j = 0; j < nm_index.size() ; j++ ){
+            if( selection[j] == true and nm_index[j] != -1 ){
+                double sqrt_weight = sqrt(weights[i]);
+                zero_modes[0+padd][i][0] = sqrt_weight;
+                zero_modes[1+padd][i][1] = sqrt_weight;
+                zero_modes[2+padd][i][2] = sqrt_weight;
+                zero_modes[3+padd][i][1] = sqrt_weight*sites_cart_new[i][2];
+                zero_modes[3+padd][i][2] = -sqrt_weight*sites_cart_new[i][1];
+                zero_modes[4+padd][i][0] = -sqrt_weight*sites_cart_new[i][2];
+                zero_modes[4+padd][i][2] = sqrt_weight*sites_cart_new[i][0];
+                zero_modes[5+padd][i][0] = sqrt_weight*sites_cart_new[i][1];
+                zero_modes[5+padd][i][1] = -sqrt_weight*sites_cart_new[i][0];
+                i++;
+                selection_new[j] = true;
+            }
+            else if( selection[j] == true and nm_index[j] == -1 ){
+                i++;
+                selection_new[j] = false;
+            }
+            else {
+                selection_new[j] = false;
+            }
         }
+//        cout << "new selection" << i << "," << selection.size() << endl;
         schmidt(zero_modes);
         count_zero_modes++;
+        selections.push_back(selection_new);
 //        cout << count_zero_modes << endl;
     }
     af::shared<vec3<double> > return_modes( std::size_t i ) { return modes[i]; }    
     af::shared<vec3<double> > return_zero_modes( std::size_t i ) { return zero_modes[i]; }
+    af::shared<bool> return_new_selection( std::size_t i ) { return selections[i]; }
     void print_eigenvector( std::size_t i )
     {
         for( std::size_t j = 0; j < modes[i].size(); j++ ){
