@@ -72,14 +72,6 @@ class show_nm(object):
                         nt += 1
                     print >> out, ""
 
-class nm_refinement(object):
-  def __init__(self,
-               fmodel,
-               model,
-               selections,
-               selections_1d):
-    pass
-
 def read_nmval_file(evalin = "./eigenvalues.dat",
                     n_modes = 20,
                     zero_mode_input_flag = True,
@@ -390,7 +382,7 @@ class nm_xray_target_minimizer(object):
         self.run_finite_differences_test_counter = 0
         self.counter = 0
         self.n_groups = len(self.xs_initial)
-        self.dim_x    = len(self.xs[0])
+        self.dim_x    = len(self.xs_initial[0])
         self.xs_min    = self.xs_initial
         self.x = self.pack(self.xs_min)
 #        for adp_nma_selected, selection in zip(adp_nmas, selections):
@@ -414,46 +406,60 @@ class nm_xray_target_minimizer(object):
                     ignore_line_search_failed_step_at_upper_bound = True,
                     ignore_line_search_failed_maxfev              = True))
         self.compute_functional_and_gradients()
-        self.xs_result = self.unpack()
+        self.xs_result = self.xs_min
 
-        def pack(self, xs):
-            v = []
-            for x in xs:
-                v += list(x)
-            return flex.doule(tuple(v))
+    def pack(self, xs):
+        v = []
+        for x in xs:
+            v += list(x)
+        return flex.double(tuple(v))
 
-        def unpack(self):
-            i = 0
-            xs_min = []
-            for j in xrange(self.n_groups):
-                self.xs_min[j] = tuple(self.x)[i:i+self.dim_x]
-                i += self.dim_x
+    def unpack(self):
+        i = 0
+        xs_min = []
+        for j in xrange(self.n_groups):
+            self.xs_min[j] = tuple(self.x)[i:i+self.dim_x]
+            i += self.dim_x
 
-        def compute_functional_and_gradients(self):
-            self.counter += 1
-            self.unpack()
-            update_xray_structure_with_nm(
-                    xray_structure = self.fmodel_copy.xray_structure,
-                    adp_nmas       = self.adp_nmas,
-                    selections     = self.selections,
-                    xs             = self.xs_min,
-                    selections_1d  = self.selections_1d,
-                    correct_adp    = self.correct_adp)
-            self.fmodel_copy.update_xray_structure(update_f_calc=True)
-            t_r = self.target_functor(compute_gradients=True)
-            self.f = t_r.target_work()
-            grad_manager = nm_xray_grads(
-                    target_result = self.t_r,
-                    adp_nmas      = self.adp_nams,
-                    selections    = self.selections,
-                    xs            = self.xs_min,
-                    n_modes       = self.n_modes,
-                    zero_mode_flag= self.zero_mode_flag)
-            self.g = self.pack(grad_manager.grad_nm)
-            if(self.run_finite_differences_test and
-               self.run_finite_differences_test_counter < 2):
-                pass
-            return self.f, self.g
+    def compute_functional_and_gradients(self):
+        self.counter += 1
+        self.unpack()
+        update_xray_structure_with_nm(
+                xray_structure = self.fmodel_copy.xray_structure,
+                adp_nmas       = self.adp_nmas,
+                selections     = self.selections,
+                xs             = self.xs_min,
+                n_modes        = self.n_modes,
+                selections_1d  = self.selections_1d,
+                correct_adp    = self.correct_adp,
+                zero_mode_flag = self.zero_mode_flag)
+        self.fmodel_copy.update_xray_structure(update_f_calc=True)
+        t_r = self.target_functor(compute_gradients=True)
+        self.f = t_r.target_work()
+        grad_manager = nm_xray_grads(
+                target_result = t_r,
+                adp_nmas      = self.adp_nmas,
+                selections    = self.selections,
+                xs            = self.xs_min,
+                n_modes       = self.n_modes,
+                zero_mode_flag= self.zero_mode_flag)
+        self.g = self.pack(grad_manager.grad_nm)
+        if(self.run_finite_differences_test and
+           self.run_finite_differences_test_counter < 2):
+            tolerance = 1.e-3
+            self.run_finite_differences_test_counter += 1
+            grad_x = finite_differences_grads_of_xray_target_wrt_nm(
+                    target_functor = self.target_functor,
+                    xs = self.xs_min,
+                    adp_nmas = self.adp_nmas,
+                    selections = self.selections,
+                    n_modes = self.n_modes,
+                    zero_mode_flag = self.zero_mode_flag,
+                    delta = 0.00001)
+            GX = self.pack(grad_x)
+            for m1, m2 in zip(self.g, GX):
+                assert approx_equal(m1, m2, tolerance) 
+        return self.f, self.g
 
 def update_xray_structure_with_nm(xray_structure,
                                  adp_nmas,
@@ -512,7 +518,10 @@ def u_cart_from_nm(adp_nmas, selections, xs, n_modes, zero_mode_flag = True):
 
 def finite_differences_grads_of_xray_target_wrt_nm(target_functor,
                                                    xs,
+                                                   adp_nmas,
                                                    selections,
+                                                   n_modes,
+                                                   zero_mode_flag = True,
                                                    delta=0.00001):
     fmodel = target_functor.manager
     derivative_xs = []
@@ -527,7 +536,7 @@ def finite_differences_grads_of_xray_target_wrt_nm(target_functor,
                 d = d_sign*delta
                 x_[j][i] += d
                 update_xray_structure_with_nm(
-                        xray_structure = xray_structure,
+                        xray_structure = fmodel.xray_structure,
                         adp_nmas       = adp_nmas,
                         selections     = selections,
                         xs             = x_,
@@ -589,12 +598,10 @@ def make_nm_compatible_with_u_positive_definite(
     time_make_nm_compatible_with_u_positive_definite += (t2 - t1)
     return xs
                 
-                
 class nm_refinement(object):
     def __init__(self,
                  fmodel,
                  model,
-                 pdb_hierarchy,
                  selections,
                  selections_1d,
                  n_modes,
@@ -618,38 +625,42 @@ class nm_refinement(object):
         fmodel.xray_structure.show_u_statistics(text = prefix+" start model",
                                                 out = out)
         xrs = fmodel.xray_structure
+        pdb_hierarchy = model.pdb_hierarchy()
         xrs.tidy_us(u_min = 1.e-6)
         modes = generate_evec(selections = selections,
-                               xray_structure = xrs,
-                               pdb_hierarchy = pdb_hierarchy,
-                               filename = evecin,
-                               n_modes = n_modes,
-                               zero_mode_input_flag = zero_mode_input_flag,
-                               zero_mode_flag = zero_mode_flag)
+                              xray_structure = xrs,
+                              pdb_hierarchy = pdb_hierarchy,
+                              filename = evecin,
+                              n_modes = n_modes,
+                              zero_mode_input_flag = zero_mode_input_flag,
+                              zero_mode_flag = zero_mode_flag)
+        adp_nmas = []
+        for selection in selections:
+                modes1d = selected_modes_to_1D(modes = modes, n_modes = 20, selection = selection)
+                weights_selected = xrs.atomic_weights().select(selection)
+                print "The number of selected atoms is %d." % len(weights_selected)
+                adp_nma = init_nm_adp(modes = modes1d,
+                                      weights = weights_selected,
+                                      n_modes = n_modes,
+                                      zero_mode_flag = zero_mode_flag)
+                adp_nmas.append(adp_nma)
+
         if(start_xs_value is not None):
             xs = start_xs_value
         else:
-            xs = []
-            nmval = tools.read_nmval_file(evalin = evalin,
-                                          n_modes = nm_modes,
-                                          zero_mode_input_flag = zero_mode_input_flag,
-                                          zero_mode_flag = zero_mode_flag)
-            for selection in selections:
+            xs_initial = []
+            nmval = read_nmval_file(evalin = evalin,
+                                    n_modes = nm_modes,
+                                    zero_mode_input_flag = zero_mode_input_flag,
+                                    zero_mode_flag = zero_mode_flag)
+            for adp_nam, selection in zip(adp_nams, selections):
                 x = tools.init_nm_para(nmval = nmval,
                                        n_modes = n_modes)
-                modes1d = tools.selected_modes_to_1D(modes = modes, n_modes = 20, selection = selection)
-                weights_selected = xray_structure.atomic_weights().select(selection)
-                print "The number of selected atoms is %d." % len(weights_selected)
                 u_cart_selected = u_cart.select(selection)
-                adp_nma = init_nm_adp(modes = modes1d,
-                                      weights = weights_selected,
-                                      n_modes = 20,
-                                      zero_mode_flag = True)
-                adp_nmas.append(adp_nma)
                 uaniso_from_s_manager = uaniso_from_s(x = x,                            
                                                       adp_nma = adp_nma, 
-                                                      n_modes = 20,
-                                                      zero_mode_flag = True)
+                                                      n_modes = n_modes,
+                                                      zero_mode_flag = zero_mode_flag)
                 u = uaniso_from_s_manager.u_cart()
                 x_scaled = scale_x(x = x,
                                    uanisos = u_cart_selected,
@@ -657,14 +668,13 @@ class nm_refinement(object):
                                    n_modes = n_modes,
                                    zero_mode_flag = zero_mode_flag)
                 xs_initial.append(x_scaled)
-            start_xs_value = nm_from_uanisos(xray_structure = xray_structure,
-                                                    selections = selections,
-                                                    modes      = modes,
-                                                    xs_initial = xs_initial,
-                                                    n_modes    = n_modes,
-                                                    number_of_macro_cycles = 1,
-                                                    verbose    = verbose)
-            xs = start_xs_value
+            xs = nm_from_uanisos(xray_structure = xrs,
+                                 selections = selections,
+                                 modes      = modes,
+                                 xs_initial = xs_initial,
+                                 n_modes    = n_modes,
+                                 number_of_macro_cycles = 1,
+                                 verbose    = verbose)
         if (verbose) :
             show_nm(xs = xs,
                     n_modes = n_modes,
@@ -673,7 +683,7 @@ class nm_refinement(object):
                     out = out)
         for macro_cycle in range(1, number_of_macro_cycles+1):
             print >> out
-            prefix = "TLS refinement: after macrocycle "+str(macro_cycle)
+            prefix = "NM refinement: after macrocycle "+str(macro_cycle)
             minimized = nm_xray_target_minimizer(
                     fmodel                      = fmodel,
                     xs_initial                  = xs,
