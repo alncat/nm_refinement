@@ -12,6 +12,7 @@ from cctbx import xray
 from libtbx.utils import user_plus_sys_time, Sorry
 from libtbx.str_utils import line_breaker
 from libtbx import group_args
+from stdlib import math
 import mmtbx.utils
 import iotbx
 import os
@@ -41,6 +42,9 @@ def show_time(out = None):
         print >> out, " time_make_nm_compatible_with_u_positive_definite = %-7.2f"% time_make_nm_compatible_with_u_positive_definite
         print >> out, " time_nm_total                                    = %-7.2f"% time_nm_total
     return total
+class nm_groups(object):
+    def __init__(self, xs = None, selection_strings = None):
+        self.xs, self.selection_strings = xs, selection_strings
 
 class show_nm(object):
     def __init__(self, xs, n_modes, text="", zero_mode_flag=True, out=None):
@@ -66,6 +70,7 @@ class show_nm(object):
                             nt += 1
                     print >> out, ""
             else:
+		print len(item)
                 for i in range(n_modes):
                     for j in range(i+1):
                         print >> out, '%4.2f ' % item[nt],
@@ -102,6 +107,7 @@ def read_nmval_file(evalin = "./eigenvalues.dat",
 
 
 def generate_evec(selections,
+		  selections_1d,
                   xray_structure,
                   pdb_hierarchy,
                   filename,
@@ -122,17 +128,34 @@ def generate_evec(selections,
     if zero_mode_flag == True and zero_mode_input_flag == False:
         count = 0
         for selection in selections:
+#	    print len(selection)
+#	    selection is size_t array
+# 	    print len(selections)
+#	    for selection_ in selection:
+#		print selection_
+	    bool_selection = flex.bool(xray_structure.sites_cart().size(), False)
+	    bool_selection.set_selected(selection, True)
             sites_cart_selected = xray_structure.sites_cart().select(selection)
             atomic_weights_selected = xray_structure.atomic_weights().select(selection)
-            nm_init_manager.gen_zero_modes(sites_cart_selected, atomic_weights_selected, selection)        
+            nm_init_manager.gen_zero_modes(sites_cart_selected, atomic_weights_selected, bool_selection)        
             padd = 6*count
             for i in range(6):
                 selected_zero_modes = nm_init_manager.return_zero_modes(i+padd)
                 modes[i].set_selected(selection, selected_zero_modes)
             count += 1
+	new_sel_st = flex.size_t()
         for i in range(count):
-            selections[i] = nm_init_manager.return_new_selection(i)
+            new_bool_selection = nm_init_manager.return_new_selection(i)
+	    new_selection = []
+            for selection_ in selections[i]:
+	        if new_bool_selection[selection_] != False:
+		    new_selection.append(selection_)
+	    new_selection = flex.size_t(new_selection)
+	    new_sel_st.extend(new_selection)
+            selections[i] = new_selection
+	selections_1d = new_sel_st
 # selection will be modified in this step, we will only keep those atoms with normal modes being assigned.
+    nm_init_manager.normalize(n_modes)
     t2 = time.time()
     time_generate_evec += (t2 - t1)
     return modes
@@ -150,6 +173,7 @@ def selected_modes_to_1D(modes,
     modes1d = []
     for i in range(n_modes):
         modes_i_selected = modes[i].select(selection)
+        normalize_mode(modes_i_selected)
         for j in range(len_selected_modes):
             modes1d.append(modes_i_selected[j])
     modes1d = flex.vec3_double(modes1d)
@@ -244,9 +268,9 @@ class nm_from_uaniso_minimizer(object):
                                       max_calls = int(max_iterations*1.5)),
                                   exception_handling_params = 
                                   lbfgs.exception_handling_parameters(
-                                      ignore_line_search_failed_step_at_lower_bound = True,
+                                      ignore_line_search_failed_step_at_lower_bound = False,
                                       ignore_line_search_failed_step_at_upper_bound = True,
-                                      ignore_line_search_failed_maxfev              = True)
+                                      ignore_line_search_failed_maxfev              = False)
                                   )
         self.compute_functional_and_gradients()
         t2 = time.time()
@@ -254,7 +278,7 @@ class nm_from_uaniso_minimizer(object):
 
     def compute_functional_and_gradients(self):
         manager = nm_from_uaniso_target_and_grads(self.x,
-#                                                  self.weights,
+#                                                 self.weights,
                                                   self.adp_nma,
                                                   self.uaniso,
                                                   self.n_modes,
@@ -269,8 +293,8 @@ def nm_from_uanisos(xray_structure,
                     xs_initial,
                     n_modes,
                     adp_nmas               = None,
-                    number_of_macro_cycles = 3000,
-                    max_iterations         = 1000,
+                    number_of_macro_cycles = 3,
+                    max_iterations         = 5000,
                     zero_mode_flag         = True,
                     verbose                = -1,
                     out                    = None):
@@ -281,7 +305,7 @@ def nm_from_uanisos(xray_structure,
         show_nm(xs = xs_initial,
                 n_modes = n_modes,
                 text = "NM from ADP: start NM values",
-                zero_mode_flag = True,
+                zero_mode_flag = zero_mode_flag,
                 out = out)
     u_cart = xray_structure.scatterers().extract_u_cart(xray_structure.unit_cell())
     xs_min = []
@@ -347,14 +371,14 @@ def nm_from_uanisos(xray_structure,
 
 class nm_xray_grads(object):
 
-    def __init__(self, target_result, adp_nmas, selections, xs, n_modes, zero_mode_flag):
+    def __init__(self, gradients, adp_nmas, selections, xs, n_modes, zero_mode_flag):
         self.grad_nm = []
-        d_target_d_uaniso = target_result.gradients_wrt_atomic_parameters(
-            u_aniso=True)
+#        d_target_d_uaniso = target_result.gradients_wrt_atomic_parameters(
+#            u_aniso=True)
         for adp_nma, sel, x in zip(adp_nmas, selections, xs):
             d_target_d_nm_manager = d_target_d_nm(
                 adp_nma = adp_nma,
-                d_target_d_uaniso = d_target_d_uaniso.select(sel),
+                d_target_d_uaniso = gradients.select(sel),
                 x       = x,
                 n_modes = n_modes,
                 zero_mode_flag = zero_mode_flag)
@@ -363,12 +387,14 @@ class nm_xray_grads(object):
 class nm_xray_target_minimizer(object):
     def __init__(self,
                  fmodel,
+                 model,
                  xs_initial,
                  adp_nmas,
                  selections,
                  selections_1d,
                  max_iterations,
                  n_modes,
+                 weight_nmre = 1.0,
                  run_finite_differences_test = False,
                  correct_adp = True,
                  zero_mode_flag = True):
@@ -397,15 +423,16 @@ class nm_xray_target_minimizer(object):
 #            self.adp_nmas.append(adp_nma_selected)
         self.minimizer = lbfgs.run(
                 target_evaluator = self,
-                core_params = lbfgs.core_parameters(maxfev = 10),
+                core_params = lbfgs.core_parameters(),
                 termination_params = lbfgs.termination_parameters(
                     min_iterations = max_iterations,
                     max_calls = int(max_iterations*1.5)),
                 exception_handling_params = lbfgs.exception_handling_parameters(
-                    ignore_line_search_failed_step_at_lower_bound = True,
+                    ignore_line_search_failed_step_at_lower_bound = False,
                     ignore_line_search_failed_step_at_upper_bound = True,
-                    ignore_line_search_failed_maxfev              = True))
+                    ignore_line_search_failed_maxfev              = False))
         self.compute_functional_and_gradients()
+        del self.x
         self.xs_result = self.xs_min
 
     def pack(self, xs):
@@ -436,14 +463,42 @@ class nm_xray_target_minimizer(object):
         self.fmodel_copy.update_xray_structure(update_f_calc=True)
         t_r = self.target_functor(compute_gradients=True)
         self.f = t_r.target_work()
+        energies_adp_aniso = self.model.restraints_manager.energies_adp_aniso(
+                xray_structure = self.fmodel_copy.xray_structure,
+                compute_gradients = True,
+                selection      = None)
+        resi_target = energies_adp_aniso.target
+#	print resi_target
+        u_aniso_gradients = energies_adp_aniso.gradients_aniso_cart
+#       u_aniso_gradients_sel = u_aniso_gradients.select(selections_1d)
+        d_xray_d_uaniso = t_r.gradients_wrt_atomic_parameters(
+                          u_aniso=True)
+#        d_xray_d_uaniso_sel = d_target_d_uaniso.select(selections_1d)
+	if(self.counter < 5):
+            rest_resi = grad_resi(gradients = u_aniso_gradients)
+            xray_resi = grad_resi(gradients = d_xray_d_uaniso)
+            rxtogeom = math.sqrt(rest_resi/xray_resi)
+	    if rxtogeom == 0.0:
+		self.scalrest = self.weight_nmre
+            else:
+		self.scalrest = self.weight_nmre/rxtogeom
+	self.f += resi_target*self.scalrest
+        d_target_d_uaniso = add_grads(gradients1 = d_xray_d_uaniso, 
+                                      gradients2 = u_aniso_gradients, 
+                                      weight = self.scalrest)
         grad_manager = nm_xray_grads(
-                target_result = t_r,
+                gradients     = d_target_d_uaniso,
                 adp_nmas      = self.adp_nmas,
                 selections    = self.selections,
                 xs            = self.xs_min,
                 n_modes       = self.n_modes,
                 zero_mode_flag= self.zero_mode_flag)
         self.g = self.pack(grad_manager.grad_nm)
+#        sumg = flex.mean_sq(u_aniso_gradients)
+#        sumx = flex.mean_sq(self.g)
+#        rxtogeom = math.sqrt(sumg/sumx)
+#        scalrest = self.weight_nmre/rxtogeom
+
         if(self.run_finite_differences_test and
            self.run_finite_differences_test_counter < 2):
             tolerance = 1.e-3
@@ -471,20 +526,22 @@ def update_xray_structure_with_nm(xray_structure,
                                  zero_mode_flag = True):
     global time_update_xray_structure_with_nm
     timer = user_plus_sys_time()
+    total_size = xray_structure.sites_cart().size()
     u_cart_from_nm_ = u_cart_from_nm(adp_nmas = adp_nmas,
                                      selections = selections,
                                      xs = xs,
                                      n_modes = n_modes,
+				     total_size = total_size,
                                      zero_mode_flag = zero_mode_flag)
     xray_structure.set_u_cart(u_cart=u_cart_from_nm_, selection = selections_1d)
     if(correct_adp): xray_structure.tidy_us(u_min = 1.e-6)
     time_update_xray_structure_with_nm += timer.elapsed()
 
 
-def u_cart_from_nm(adp_nmas, selections, xs, n_modes, zero_mode_flag = True):
+def u_cart_from_nm(adp_nmas, selections, xs, n_modes, total_size, zero_mode_flag = True):
     global time_u_cart_from_nm
     t1 = time.time()
-    uanisos = flex.sym_mat3_double(selections[0].size(), [0,0,0,0,0,0])
+    uanisos = flex.sym_mat3_double(total_size, [0,0,0,0,0,0])
     for adp_nma, selection, x in zip(adp_nmas, selections, xs):
         uaniso_form_s_manager = uaniso_from_s(x = x,
                           adp_nma = adp_nma,
@@ -563,6 +620,7 @@ def make_nm_compatible_with_u_positive_definite(
         number_of_macro_cycles_for_nm_from_uanisos,
         n_modes,
         xs,
+	selections1d = None,
         zero_mode_flag = True,
         out = None):
     global time_make_nm_compatible_with_u_positive_definite
@@ -570,11 +628,12 @@ def make_nm_compatible_with_u_positive_definite(
     if(out is None): out = sys.stdout
     for i in range(1, max_iterations+1):
         update_xray_structure_with_nm(
-                xray_structrue = xray_structrue,
+                xray_structure = xray_structure,
                 adp_nmas       = adp_nmas,
                 selections     = selections,
                 xs             = xs,
                 n_modes        = n_modes,
+		selections_1d  = selections_1d,
                 zero_mode_flag = zero_mode_flag)
         ipad_1 = xray_structure.is_positive_definite_u()
         if(i == 1 or i == max_iterations):
@@ -607,8 +666,10 @@ class nm_refinement(object):
                  n_modes,
                  number_of_macro_cycles,
                  max_number_of_iterations,
+                 weight_nmre = 1.0,
                  evecin = "eigenvectors.dat",
                  evalin = "eigenvalues.dat",
+		 nm_params_filename = "nm_params.dat",
                  zero_mode_flag = True,
                  zero_mode_input_flag = False,
                  start_xs_value = None,
@@ -626,17 +687,20 @@ class nm_refinement(object):
                                                 out = out)
         xrs = fmodel.xray_structure
         pdb_hierarchy = model.pdb_hierarchy()
+#pdb_hierarchy misssing a parameter, I am not sure whether it is all right.
         xrs.tidy_us(u_min = 1.e-6)
         modes = generate_evec(selections = selections,
+			      selections_1d = selections_1d,
                               xray_structure = xrs,
                               pdb_hierarchy = pdb_hierarchy,
                               filename = evecin,
                               n_modes = n_modes,
                               zero_mode_input_flag = zero_mode_input_flag,
                               zero_mode_flag = zero_mode_flag)
+#selections will be modified during this step
         adp_nmas = []
         for selection in selections:
-                modes1d = selected_modes_to_1D(modes = modes, n_modes = 20, selection = selection)
+                modes1d = selected_modes_to_1D(modes = modes, n_modes = n_modes, selection = selection)
                 weights_selected = xrs.atomic_weights().select(selection)
                 print "The number of selected atoms is %d." % len(weights_selected)
                 adp_nma = init_nm_adp(modes = modes1d,
@@ -644,18 +708,19 @@ class nm_refinement(object):
                                       n_modes = n_modes,
                                       zero_mode_flag = zero_mode_flag)
                 adp_nmas.append(adp_nma)
-
+	u_cart = xrs.scatterers().extract_u_cart(xrs.unit_cell())
         if(start_xs_value is not None):
-            xs = start_xs_value
-        else:
+            xs = nm_params_reader(filename = start_xs_value)
+        elif(macro_cycle == 1):
             xs_initial = []
             nmval = read_nmval_file(evalin = evalin,
-                                    n_modes = nm_modes,
+                                    n_modes = n_modes,
                                     zero_mode_input_flag = zero_mode_input_flag,
                                     zero_mode_flag = zero_mode_flag)
-            for adp_nam, selection in zip(adp_nams, selections):
-                x = tools.init_nm_para(nmval = nmval,
-                                       n_modes = n_modes)
+            for adp_nma, selection in zip(adp_nmas, selections):
+                x = init_nm_para(nmval = nmval,
+                                 n_modes = n_modes,
+				 zero_mode_flag = zero_mode_flag)
                 u_cart_selected = u_cart.select(selection)
                 uaniso_from_s_manager = uaniso_from_s(x = x,                            
                                                       adp_nma = adp_nma, 
@@ -674,7 +739,10 @@ class nm_refinement(object):
                                  xs_initial = xs_initial,
                                  n_modes    = n_modes,
                                  number_of_macro_cycles = 1,
+				 zero_mode_flag = zero_mode_flag,
                                  verbose    = verbose)
+        else:
+            xs = model.nm_groups.xs
         if (verbose) :
             show_nm(xs = xs,
                     n_modes = n_modes,
@@ -686,12 +754,14 @@ class nm_refinement(object):
             prefix = "NM refinement: after macrocycle "+str(macro_cycle)
             minimized = nm_xray_target_minimizer(
                     fmodel                      = fmodel,
+		    model			= model,
                     xs_initial                  = xs,
                     adp_nmas                    = adp_nmas,
                     selections                  = selections,
                     selections_1d               = selections_1d,
                     max_iterations              = max_number_of_iterations,
                     n_modes                     = n_modes,
+                    weight_nmre                 = weight_nmre,
                     run_finite_differences_test = run_finite_differences_test,
                     zero_mode_flag              = zero_mode_flag)
             xrs = minimized.fmodel_copy.xray_structure
@@ -718,12 +788,13 @@ class nm_refinement(object):
                         xray_structure = xray_structure,
                         adp_nmas       = adp_nmas,
                         selections     = selections,
-                        max_iterations = 10,
+                        max_iterations = 100,
                         number_of_u_nonpositive_definite = 0,
                         eps            = eps,
                         number_of_macro_cycles_for_nm_from_uanisos = 10,
                         n_modes        = n_modes,
                         xs             = minimize.xs_result,
+			selections_1d  = selections_1d,
                         zero_mode_flag = zero_mode_flag,
                         out            = out)
             else: xs = minimized.xs_result
@@ -734,7 +805,46 @@ class nm_refinement(object):
                     zero_mode_flag = zero_mode_flag,
                     out = out)
         self.xs = xs
-#        model.nm_groups.xs = xs
+        filename = nm_params_filename
+        nm_params_writer(xs = minimized.xs_result,
+                         n_modes = n_modes,
+                         zero_mode_flag = zero_mode_flag,
+                         filename = filename)
+        model.nm_groups.xs = xs
         self.fmodel = fmodel
         time_nm_total += timer.elapsed()
 
+def nm_params_writer(xs,
+                    n_modes,
+                    zero_mode_flag,
+                    filename = "nm_params.dat"):
+    with open(filename, 'w') as f:
+        f.write("n_modes " + str(n_modes) + "\n")
+        if(zero_mode_flag):
+            f.write("zero_mode_flag True\n")
+        else:
+            f.write("zero_mode_flag False\n")
+        f.write("n_groups "+str(len(xs))+"\n")
+        for x in xs:
+            for x_ in x:
+                f.write(str(x_)+"\n")
+
+def nm_params_reader(filename = "nm_params.dat"):
+    with open(filename, 'r') as f:
+        line = f.readline()
+        n_modes = int(line.split()[1])
+        line = f.readline()
+        if(line.split()[1] == "True"):
+            n_params = 21 + (n_modes - 6)*(n_modes - 5)/2
+        elif(line.split()[1] == "False"):
+            n_params = (n_modes + 1)*n_modes/2
+        line = f.readline()
+        n_groups = int(line.split()[1])
+        xs = []
+        for i in range(n_groups):
+            x = []
+            for j in range(int(n_params)):
+                line = f.readline()
+                x.append(float(line))
+            xs.append(x)
+    return xs

@@ -33,10 +33,14 @@ namespace {
                              arg("atoms"),
                              arg("zero_mode_input_flag"),
                              arg("zero_mode_flag"))))
+        .def("normalize", &nm_init::normalize)
         .def("return_modes", &nm_init::return_modes)
         .def("print_eigenvector", &nm_init::print_eigenvector)
         .def("gen_zero_modes", &nm_init::gen_zero_modes)
         .def("return_zero_modes", &nm_init::return_zero_modes)
+        .def("return_new_selection", &nm_init::return_new_selection)
+        ;
+        def("normalize_mode", (void (*)(af::shared<vec3<double> >)) normalize_mode, (arg("mode")))
         ;
         def("init_nm_adp", (af::shared<sym_mat3<double> >(*)(af::shared<vec3<double> >, 
                                                             af::shared<double>,
@@ -53,6 +57,12 @@ namespace {
                                               std::size_t,
                                               bool)) scale_x,
                        (arg("x"), arg("uanisos"), arg("adp_all"), arg("n_modes"), arg("zero_mode_flag")))
+        ;
+        def("grad_resi", (double(*)(af::shared<sym_mat3<double> >)) grad_resi,
+                       (arg("gradients")))
+        ;
+        def("add_grads", (af::shared<sym_mat3<double> >(*)(af::shared<sym_mat3<double> >, af::shared<sym_mat3<double> >, double)) add_grads,
+                       (arg("gradients1"), arg("gradients2"), arg("weight")))
         ;
         class_<uaniso_from_s>("uaniso_from_s",
                               init<af::shared<double> const&,

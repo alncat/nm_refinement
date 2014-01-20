@@ -63,11 +63,13 @@ public:
             nmode_start = 0;
         }
         ifstream file(filename, ios::in | ios::binary);
-        std::size_t total_evc;
+        std::size_t total_evc = 0;
         std::size_t align_mark = 0;
         std::size_t resi_count = 0;
         if( file.is_open() ){
-            for(std::size_t i = 0; i <= atoms.size(); i++){
+            std::size_t i = 0;
+//            for(std::size_t i = 0; i <= atoms.size(); i++){
+            while(1){
                 char serial[9] = "";
                 file.read(serial, 8);
                 file.seekg(5, ios::cur);
@@ -120,6 +122,7 @@ public:
                     total_evc = i;
                     break;
                 }
+                i++;
             }
 //            for(std::size_t i = 0; i < nm_index.size(); i++){
 //                if(nm_index[i] == -1){
@@ -188,6 +191,12 @@ public:
         else {
             cout << "cannot open eigenvector file" << filename << endl;
             exit(EXIT_FAILURE);
+        }
+        for(std::size_t i = 0; i < nm_index.size(); i++){
+	    if( nm_index[i]== -1 ){
+                cout << i << nm_index[i] << endl;
+                cout << "Cannot find " << atoms[i].data->name.elems << atoms[i].parent()->data->resname.elems << atoms[i].parent()->data->altloc.elems << atoms[i].parent()->parent()->data->resseq.elems << nm_index[i] << " in eigenvector file, please exclude it from your selection!" << endl;
+	    }
         }
     }
     void schmidt(af::shared<normal_mode> & pall)
@@ -309,6 +318,21 @@ public:
         selections.push_back(selection_new);
 //        cout << count_zero_modes << endl;
     }
+
+    void normalize(std::size_t n_modes){
+        MMTBX_ASSERT( n_modes = modes.size() );
+        for(std::size_t i = 0; i < n_modes; i++){
+            double norm_mode = 0.0;
+            for(std::size_t j = 0; j < modes[i].size(); j++){
+                norm_mode += modes[i][j].length_sq();
+            }
+            double sqrt_norm = sqrt(norm_mode);
+            for(std::size_t j = 0; j < modes[i].size(); j++){
+                modes[i][j] /= sqrt_norm;
+            }
+        }
+    }
+            
     af::shared<vec3<double> > return_modes( std::size_t i ) { return modes[i]; }    
     af::shared<vec3<double> > return_zero_modes( std::size_t i ) { return zero_modes[i]; }
     af::shared<bool> return_new_selection( std::size_t i ) { return selections[i]; }
@@ -319,6 +343,18 @@ public:
         }
     }
 };
+
+void normalize_mode(af::shared<vec3<double> > & mode){
+    double norm_mode = 0.0;
+    for(std::size_t j = 0; j < mode.size(); j++){
+        norm_mode += mode[j].length_sq();
+    }
+    MMTBX_ASSERT(norm_mode != 0);
+    double sqrt_norm = sqrt(norm_mode);
+    for(std::size_t j = 0; j < mode.size(); j++){
+        mode[j] /= sqrt_norm;
+    }
+}
 
 af::shared<sym_mat3<double> > init_nm_adp(af::shared<vec3<double> > const& modes,
                                             af::shared<double> const& weights,
@@ -401,14 +437,14 @@ af::shared<double> scale_x(af::shared<double> const& x,
     double aniso_all = 0.0;
     af::shared<sym_mat3<double> > adp_nma;
     for(std::size_t i = 0; i < uanisos.size(); i++){
-        if(uanisos[i][2] == 0.0){
-            iso_all += uanisos[i][0]*3.;
-        }
-        else{
-            for(std::size_t j = 0; j < 3; j++){
+//        if(uanisos[i][2] == 0.0){
+//            iso_all += uanisos[i][0]*3.;
+//        }
+//        else{
+          for(std::size_t j = 0; j < 3; j++){
                 iso_all += uanisos[i][j];
             }
-        }
+//        }
         for(std::size_t j = 0; j < 3; j++){
             aniso_all += adp_all[i][j];
         }
@@ -616,6 +652,27 @@ private:
     af::versa<double, af::c_grid<2> > s;
 //    af::shared<sym_mat3<double> > nm_adp;
 };
+
+double grad_resi(af::shared<sym_mat3<double> > const& gradients){
+    double resi = 0.0;
+    for(std::size_t i = 0; i < gradients.size(); i++){
+        for(std::size_t j = 0; j < 6; j++){
+            resi += gradients[i][j]*gradients[i][j];
+        }
+    }
+    return resi;
+}
+
+af::shared<sym_mat3<double> > add_grads(af::shared<sym_mat3<double> > const& gradients1,
+                     af::shared<sym_mat3<double> > const& gradients2,
+                     double weight){
+    MMTBX_ASSERT(gradients1.size()==gradients2.size());
+    af::shared<sym_mat3<double> > gradients(gradients1.size(), af::init_functor_null<sym_mat3<double> >());
+    for(std::size_t i = 0; i < gradients.size(); i++){
+        gradients[i] = gradients1[i] + gradients2[i]*weight;
+    }
+    return gradients;
+}
 
 class nm_from_uaniso_target_and_grads {
 public:
